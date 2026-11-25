@@ -172,3 +172,7 @@ On 26 November 2026 the CLI ran both modes through WikiVibe on the same organize
 Both reports produced the `not_ready` verdict. The multi-agent report contains 399 graph nodes, 980 edges and four unresolved disagreements. It records deterministic fallback during consolidation. Total token usage was 2.92 times the legacy usage, outside the experiment's equal-budget tolerance. The provider supplied no verified cost.
 
 Reliability varied across cold starts. The first multi-agent trial on the same document stopped after 131 seconds when the logic expert returned an invalid enumeration after correction. Its failed attempt is included in the experiment. The first legacy trial completed in 286 seconds. Direct comparison against the source found repeated findings and unsupported claims in both successful reports inspected. Automated annotation matches and quotation checks measure different properties from human-adjudicated precision.
+
+### Additional PDF stress test
+
+A separate six-page PDF was submitted once through the multi-agent CLI on the same model. After 5 min 56 s, the document-level Logic Inspector request reached its 120-second provider timeout. The CLI exited with code 1 after 21 model calls and produced a failure metrics file. Coverage was incomplete, so the run produced no report or verdict. Token totals and cost are unavailable for this attempt.
