@@ -52,7 +52,25 @@ def test_diagnostics_keep_latest_terminal_validation_and_allowed_schema_codes():
         "http_status": None,
         "validation_reason": "The JSON schema is invalid.",
         "schema_error_codes": ["literal_error", "missing"],
+        "observed_validation_failures": [{"stage": "set", "reason": "The JSON schema is invalid.", "count": 1}],
     }
+
+
+def test_parallel_batch_does_not_erase_observed_validation_error_or_reveal_private_reasons():
+    stage = "multi_logic_inspector_individual"
+    label = compare_review_modes.STAGES[stage]
+    reason = "Not every requirement was reviewed exactly once"
+    lines = [
+        f"[01:30] {label} — проверка ответа не пройдена: {reason}",
+        f"[01:30] {label} — проверка ответа не пройдена: PRIVATE_TEXT",
+        f"[01:30] {label} — запрос 6 · отправлен",
+    ]
+    diagnostic = compare_review_modes.failure_diagnostics("\n".join(lines), exit_code=1)
+    assert diagnostic["failed_stage"] is None
+    assert diagnostic["observed_validation_failures"] == [
+        {"stage": stage, "reason": reason, "count": 1}, {"stage": stage, "reason": None, "count": 1},
+    ]
+    assert "PRIVATE_TEXT" not in json.dumps(diagnostic)
 
 
 def test_rate_limit_and_deadline_choose_relevant_stage():

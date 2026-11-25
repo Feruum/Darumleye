@@ -283,6 +283,7 @@ def failure_diagnostics(stderr: str | bytes | None, *, exit_code: int, process_t
     labels = {label: stage for stage, label in STAGES.items()}
     labels["AI-анализ"] = None
     latest: dict[str | None, tuple[int, dict]] = {}
+    validation_events: Counter[tuple[str | None, str | None]] = Counter()
     active: set[tuple[str | None, str]] = set()
     terminal_category = None
     for index, line in enumerate((stderr or "").splitlines()):
@@ -316,10 +317,12 @@ def failure_diagnostics(stderr: str | bytes | None, *, exit_code: int, process_t
         marker = "проверка ответа не пройдена: "
         if message.startswith(marker):
             reason = message[len(marker):]
+            safe_reason = reason if reason in _SAFE_VALIDATION_REASONS else None
+            validation_events[stage, safe_reason] += 1
             prior = latest.get(stage)
             diagnostic = {**result, **(prior[1] if prior else {})}
             diagnostic.update(failure_category="validation_failed", failed_stage=stage,
-                              validation_reason=reason if reason in _SAFE_VALIDATION_REASONS else None)
+                              validation_reason=safe_reason)
             latest[stage] = index, diagnostic
             continue
         diagnostic = _stage_failure(stage, message)
@@ -343,6 +346,13 @@ def failure_diagnostics(stderr: str | bytes | None, *, exit_code: int, process_t
         result["failure_category"] = "rate_limited"
     elif candidates:
         result.update(candidates[0])
+    if validation_events:
+        # Another batch of the same role may start while a failed batch unwinds.
+        # Preserve explicitly observed errors separately from the exit diagnosis.
+        result["observed_validation_failures"] = [
+            {"stage": stage, "reason": reason, "count": count}
+            for (stage, reason), count in validation_events.items()
+        ]
     return result
 
 
