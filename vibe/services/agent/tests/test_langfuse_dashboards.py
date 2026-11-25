@@ -71,7 +71,7 @@ def test_model_evaluation_compares_modes_models_and_selected_prompt_hashes():
         if widget["dimensions"] == [{"field": "providedModelName"}]
     ]
     assert model_widgets
-    for mode in ("legacy", "multi_agent"):
+    for mode in ("multi_agent_direct", "multi_agent"):
         scoped = [
             widget
             for widget in model_widgets

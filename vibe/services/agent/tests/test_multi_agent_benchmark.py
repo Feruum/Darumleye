@@ -102,29 +102,52 @@ def test_completed_trial_does_not_retain_recovered_errors():
     assert diagnostic["http_status"] is None
 
 
+def test_stage_request_counts_exclude_replies_and_unrecognized_log_text():
+    label = compare_review_modes.STAGES["multi_pair_1"]
+    log = (
+        f"[00:05] {label} — запрос 1 · отправлен\n"
+        f"[00:06] {label} — запрос 1 · ответ получен\n"
+        f"[00:07] {label} — запрос 2 · отправлен\n"
+        "[00:08] user data — запрос 1 · отправлен\n"
+    )
+    assert compare_review_modes.count_stage_requests(log.encode()) == {"multi_pair_1": 2}
+
+
+def test_stress_input_is_an_optional_unlabelled_cli_case(tmp_path, monkeypatch, capsys):
+    f = tmp_path / "input.pdf"
+    f.write_bytes(b"fixture")
+    args = ["evaluate", "--case", "stress", "--dry-run", "--repetitions", "1", "--output-dir", str(tmp_path)]
+    monkeypatch.setattr(sys, "argv", args)
+    with pytest.raises(SystemExit):
+        compare_review_modes.main()
+    monkeypatch.setattr(sys, "argv", [*args, "--stress-source", str(f)])
+    assert compare_review_modes.main() == 0
+    assert capsys.readouterr().out.splitlines() == ["stress-multi_agent_direct-01", "stress-multi_agent-01"]
+
+
 def test_experiment_matrix_alternates_modes_and_repeats_each_case():
     case = BenchmarkCase("example", Path("example.md"), None)
     matrix = experiment_matrix([case], 3)
     assert [(run.mode, run.repetition) for run in matrix] == [
-        ("legacy", 1), ("multi_agent", 1), ("multi_agent", 2),
-        ("legacy", 2), ("legacy", 3), ("multi_agent", 3),
+        ("multi_agent_direct", 1), ("multi_agent", 1), ("multi_agent", 2),
+        ("multi_agent_direct", 2), ("multi_agent_direct", 3), ("multi_agent", 3),
     ]
     assert len({run.name for run in matrix}) == 6
 
 
 def test_summary_keeps_failed_trials_and_missing_token_data_visible():
     runs = [
-        {"case": "example", "mode": "legacy", "status": "completed", "structural_passed": True, "elapsed_seconds": 2.0, "usage": {"input_tokens": 4, "output_tokens": 3}},
-        {"case": "example", "mode": "legacy", "status": "completed", "structural_passed": True, "elapsed_seconds": 4.0, "usage": None},
-        {"case": "example", "mode": "multi_agent", "status": "failed", "structural_passed": False, "elapsed_seconds": 9.0},
+        {"case": "example", "mode": "multi_agent", "status": "completed", "structural_passed": True, "elapsed_seconds": 2.0, "usage": {"input_tokens": 4, "output_tokens": 3}},
+        {"case": "example", "mode": "multi_agent", "status": "completed", "structural_passed": True, "elapsed_seconds": 4.0, "usage": None},
+        {"case": "example", "mode": "multi_agent_direct", "status": "failed", "structural_passed": False, "elapsed_seconds": 9.0},
     ]
     summary = summarize_runs(runs)
-    legacy = summary["example"]["legacy"]
-    assert legacy["completed"] == 2
-    assert legacy["mean_elapsed_seconds"] == 3.0
-    assert legacy["mean_input_tokens"] is None
-    assert summary["example"]["multi_agent"]["failed"] == 1
-    assert summary["example"]["multi_agent"]["mean_elapsed_seconds"] is None
+    multi_agent = summary["example"]["multi_agent"]
+    assert multi_agent["completed"] == 2
+    assert multi_agent["mean_elapsed_seconds"] == 3.0
+    assert multi_agent["mean_input_tokens"] is None
+    assert summary["example"]["multi_agent_direct"]["failed"] == 1
+    assert summary["example"]["multi_agent_direct"]["mean_elapsed_seconds"] is None
 
 
 def test_interrupted_matrix_resumes_after_failed_trial_with_same_configuration(tmp_path, monkeypatch):
@@ -159,27 +182,27 @@ def test_interrupted_matrix_resumes_after_failed_trial_with_same_configuration(t
     assert compare_review_modes.main() == 1
     saved = json.loads((output / "comparison.json").read_text())["runs"]
     assert saved[:1] == previous and len(saved) == 2
-    assert calls == ["defective-legacy-01", "defective-multi_agent-01", "defective-multi_agent-01"]
+    assert calls == ["defective-multi_agent_direct-01", "defective-multi_agent-01", "defective-multi_agent-01"]
 
 
 def test_pair_comparisons_do_not_treat_missing_usage_as_equal_budget():
-    legacy = {"case": "example", "mode": "legacy", "repetition": 1, "status": "completed", "structural_passed": True, "elapsed_seconds": 2, "usage": {"input_tokens": 80, "output_tokens": 20}, "structural": {"model": "fixture"}, "quality": {"annotation_recall": 0.5}}
-    multi = {**legacy, "mode": "multi_agent", "elapsed_seconds": 3, "quality": {"annotation_recall": 0.75}, "usage": {"input_tokens": 85, "output_tokens": 20}}
-    pair = paired_comparisons([legacy, multi])[0]
+    multi_agent = {"case": "example", "mode": "multi_agent", "repetition": 1, "status": "completed", "structural_passed": True, "elapsed_seconds": 2, "usage": {"input_tokens": 80, "output_tokens": 20}, "structural": {"model": "fixture"}, "quality": {"annotation_recall": 0.5}}
+    multi = {**multi_agent, "mode": "multi_agent_direct", "elapsed_seconds": 3, "quality": {"annotation_recall": 0.75}, "usage": {"input_tokens": 85, "output_tokens": 20}}
+    pair = paired_comparisons([multi_agent, multi])[0]
     assert pair["tokens_within_10_percent"] is True
     assert pair["annotation_recall_delta"] == 0.25
     assert pair["same_model"] is True
-    assert paired_comparisons([legacy, {**multi, "usage": None}])[0]["tokens_within_10_percent"] is None
+    assert paired_comparisons([multi_agent, {**multi, "usage": None}])[0]["tokens_within_10_percent"] is None
 
 
 def test_comparable_budget_requires_same_frozen_case_and_two_independent_runs():
-    base = {"case": "a", "mode": "legacy", "repetition": 1, "status": "completed",
+    base = {"case": "a", "mode": "multi_agent", "repetition": 1, "status": "completed",
             "structural_passed": True, "elapsed_seconds": 1, "usage": {"input_tokens": 90, "output_tokens": 10},
             "implementation_fingerprint": "rev", "implementation_unchanged_during_trial": True,
             "trial_settings": {"model": "model", "analysis_limit_seconds": 900},
             "quality": {"annotation_recall": .5},
             "structural": {"model": "model", "source_sha256": "source", "run_id": "run-1"}}
-    multi = {**base, "mode": "multi_agent", "structural": {**base["structural"], "run_id": "run-2"}}
+    multi = {**base, "mode": "multi_agent_direct", "structural": {**base["structural"], "run_id": "run-2"}}
     assert paired_comparisons([base, multi])[0]["eligible_for_equal_budget_analysis"]
     for different in ({"model": "other"}, {"source_sha256": "other"}, {"run_id": "run-1"}):
         record = {**multi, "structural": {**multi["structural"], **different}}
@@ -204,13 +227,14 @@ def test_expert_findings_are_hash_bound_and_duplicate_defects_count_once(tmp_pat
             score_expert_review(report, {**review, **invalid})
 
 
-async def test_independent_audit_accepts_multi_agent_report_and_graph(tmp_path):
+@pytest.mark.parametrize("mode", ["multi_agent", "multi_agent_direct"])
+async def test_independent_audit_accepts_multi_agent_report_and_graph(tmp_path, mode):
     from agent.services.spec_review import extract_specification, review_specification
     from test_spec_multi_agent import ExpertChat, SOURCE
 
     source = tmp_path / "requirements.txt"
     source.write_text(SOURCE)
-    report = await review_specification(extract_specification(source.name, "text/plain", source.read_bytes()), ExpertChat(), review_mode="multi_agent")
+    report = await review_specification(extract_specification(source.name, "text/plain", source.read_bytes()), ExpertChat(), review_mode=mode)
     output = tmp_path / "report.json"
     output.write_text(report.model_dump_json())
     result = evaluate(source, output)

@@ -169,7 +169,7 @@ def evaluate(source_path: Path, report_path: Path, *, official: bool = False,
             == {f"D-{i:03d}" for i in range(1, len(report.findings) + 1)}
             and len(decision.findings) == len(report.findings),
         )
-    multi_agent = report.passport.review_mode == "multi_agent"
+    multi_agent = report.passport.review_mode in {"multi_agent", "multi_agent_direct"}
     if multi_agent or "readiness_checklist" in raw_report:
         check("All readiness criteria exactly once and in order", [item.id for item in report.readiness_checklist] == list(READINESS_CRITERIA))
         def check_readiness():
@@ -180,7 +180,7 @@ def evaluate(source_path: Path, report_path: Path, *, official: bool = False,
         check("Questions link to verified findings or checklist rows", report.clarification_questions == clarification_questions(report.findings, report.readiness_checklist))
     if multi_agent or "extraction_gaps" in raw_report:
         deterministic_gaps = uncovered_requirement_candidates(specification, report.requirements)
-        if report.passport.review_mode == "multi_agent":
+        if multi_agent:
             check("Explicit extraction candidate audit", all(item in report.extraction_gaps for item in deterministic_gaps))
             def check_gap_evidence():
                 for item in report.extraction_gaps:

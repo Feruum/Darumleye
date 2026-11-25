@@ -7,13 +7,14 @@ import json
 import re
 import subprocess
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
-from uuid import uuid4
 from statistics import mean
 from time import monotonic
 from typing import get_args
+from uuid import uuid4
 
 from pydantic_core import ErrorType
 
@@ -28,6 +29,9 @@ if __package__:
 else:
     from evaluate_quality_benchmark import evaluate_case
     from evaluate_spec_report import evaluate
+
+
+COMPARISON_MODES = ("multi_agent", "multi_agent_direct")
 
 
 @dataclass(frozen=True)
@@ -52,9 +56,9 @@ class Trial:
 def experiment_matrix(cases: list[BenchmarkCase], repetitions: int) -> list[Trial]:
     return [
         Trial(case, mode, repetition)
-        for case in cases
+        for case_index, case in enumerate(cases)
         for repetition in range(1, repetitions + 1)
-        for mode in (("legacy", "multi_agent") if repetition % 2 else ("multi_agent", "legacy"))
+        for mode in (COMPARISON_MODES[::-1] if (case_index + repetition) % 2 else COMPARISON_MODES)
     ]
 
 
@@ -62,7 +66,7 @@ def summarize_runs(runs: list[dict]) -> dict:
     by_case: dict = {}
     for case in sorted({run["case"] for run in runs}):
         by_case[case] = {}
-        for mode in ("legacy", "multi_agent"):
+        for mode in COMPARISON_MODES:
             selected = [r for r in runs if r["case"] == case and r["mode"] == mode]
             complete = [r for r in selected if r["status"] == "completed"]
 
@@ -97,7 +101,7 @@ def paired_comparisons(runs: list[dict]) -> list[dict]:
     matched = {(r["case"], r["repetition"], r["mode"]): r for r in runs}
     result = []
     for case, repetition in sorted({(r["case"], r["repetition"]) for r in runs}):
-        a, b = (matched.get((case, repetition, mode)) for mode in ("legacy", "multi_agent"))
+        a, b = (matched.get((case, repetition, mode)) for mode in COMPARISON_MODES)
         if not a or not b:
             continue
         def tokens(record):
@@ -125,7 +129,8 @@ def paired_comparisons(runs: list[dict]) -> list[dict]:
             "same_model": same_model, "same_source": same_input, "independent_runs": independent,
             "same_implementation": frozen,
             "same_settings": ca == cb if ca and cb else None,
-            "legacy_tokens": ta, "multi_agent_tokens": tb,
+            "baseline_mode": a["mode"], "candidate_mode": b["mode"],
+            "multi_agent_tokens": ta, "multi_agent_direct_tokens": tb,
             "tokens_within_10_percent": within_budget,
             "eligible_for_equal_budget_analysis": all((complete, same_model, same_input, independent, frozen, ca, ca == cb, within_budget)),
             "annotation_recall_delta": round(rb - ra, 4) if complete and ra is not None and rb is not None else None,
@@ -341,6 +346,21 @@ def failure_diagnostics(stderr: str | bytes | None, *, exit_code: int, process_t
     return result
 
 
+def count_stage_requests(stderr: str | bytes | None) -> dict[str, int]:
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", errors="replace")
+    labels = {label: stage for stage, label in STAGES.items()}
+    counts: Counter[str] = Counter()
+    for line in (stderr or "").splitlines():
+        progress = _PROGRESS_LINE.fullmatch(line)
+        if progress:
+            label, _, message = progress[1].partition(" — ")
+            request = _REQUEST_LINE.fullmatch(message)
+            if label in labels and request and request[2] == "отправлен":
+                counts[labels[label]] += 1
+    return dict(counts)
+
+
 def run_trial(trial: Trial, output_dir: Path, env_file: Path, timeout: int) -> dict:
     name = trial.name
     if any((output_dir / f"{name}{ext}").exists() for ext in (".json", ".usage.json")):
@@ -359,15 +379,16 @@ def run_trial(trial: Trial, output_dir: Path, env_file: Path, timeout: int) -> d
     try:
         result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=timeout+360)
         exit_code = result.returncode
-        diagnostic = failure_diagnostics(result.stderr, exit_code=exit_code)
+        stderr = result.stderr
     except subprocess.TimeoutExpired as error:
         exit_code = 124
-        diagnostic = failure_diagnostics(error.stderr, exit_code=exit_code, process_timeout=True)
+        stderr = error.stderr
     record = {
         "case": trial.case.name, "mode": trial.mode, "repetition": trial.repetition,
         "elapsed_seconds": round(monotonic() - started, 3),
         "status": "failed", "exit_code": exit_code, "structural_passed": False,
-        **diagnostic,
+        **failure_diagnostics(stderr, exit_code=exit_code, process_timeout=exit_code == 124),
+        "stage_requests": count_stage_requests(stderr),
         "implementation_fingerprint": fingerprint, "trial_settings": settings,
         "implementation_unchanged_during_trial": fingerprint == implementation_fingerprint(),
         "usage": json.loads(usage.read_text()) if usage.exists() else None,
@@ -397,8 +418,9 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--env-file", type=Path, default=root / ".env")
     parser.add_argument("--official-source", type=Path, default=root / ".artifacts/requirements.md")
+    parser.add_argument("--stress-source", type=Path, help="An additional, unlabelled input for a structural and timing comparison")
     parser.add_argument("--official-gold", type=Path, default=root / ".artifacts/organizer-eval/quality-anchor-gold.json", help="Optional retrospective labels; not organizer ground truth")
-    parser.add_argument("--case", action="append", choices=["official", *sorted(p.name.removesuffix(".gold.json") for p in benchmark.glob("*.gold.json"))])
+    parser.add_argument("--case", action="append", choices=["official", "stress", *sorted(p.name.removesuffix(".gold.json") for p in benchmark.glob("*.gold.json"))])
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--timeout-seconds", type=int, default=900)
     parser.add_argument("--dry-run", action="store_true", help="List trials without contacting the provider")
@@ -422,7 +444,13 @@ def main() -> int:
             if annotated == args.official_source.resolve():
                 gold = args.official_gold.resolve()
         cases.insert(0, BenchmarkCase("official", args.official_source.resolve(), gold, True))
-    cases = [case for case in cases if args.case is None or case.name in args.case]
+    if args.stress_source:
+        cases.append(BenchmarkCase("stress", args.stress_source.resolve(), None))
+    if args.case:
+        by_name = {case.name: case for case in cases}
+        if "stress" in args.case and not args.stress_source:
+            parser.error("--case stress requires --stress-source")
+        cases = [by_name[name] for name in dict.fromkeys(args.case)]
     if not cases or any(not case.source.is_file() for case in cases):
         parser.error("Selected source file does not exist")
     trials = experiment_matrix(cases, args.repetitions)

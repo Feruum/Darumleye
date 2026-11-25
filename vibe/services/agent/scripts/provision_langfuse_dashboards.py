@@ -103,7 +103,7 @@ def evaluation_model_widgets(prompt_versions: Sequence[str] = ()) -> list[dict]:
     """
     versions = list(dict.fromkeys(_prompt_hash(value) for value in prompt_versions))
     widgets = []
-    for mode, label in (("legacy", "Legacy"), ("multi_agent", "Multi-agent")):
+    for mode, label in (("multi_agent_direct", "Direct"), ("multi_agent", "Multi-agent")):
         base = [eq("type", "GENERATION"), mode_filter(mode)]
         for version in (None, *versions):
             prefix = label if version is None else f"{label} prompt {version}"
@@ -419,10 +419,10 @@ def dashboard_manifest(prompt_versions: Sequence[str] = ()) -> list[dict]:
                 ),
                 widget(
                     cost,
-                    "Legacy tokens",
+                    "Direct tokens",
                     measure="totalTokens",
                     agg="sum",
-                    filters=[*model_calls, mode_filter("legacy")],
+                    filters=[*model_calls, mode_filter("multi_agent_direct")],
                 ),
                 widget(
                     cost,
@@ -439,10 +439,10 @@ def dashboard_manifest(prompt_versions: Sequence[str] = ()) -> list[dict]:
             "widgets": [
                 widget(
                     evaluation,
-                    "Legacy analysis p95 (ms)",
+                    "Direct analysis p95 (ms)",
                     measure="latency",
                     agg="p95",
-                    filters=[*analysis, mode_filter("legacy")],
+                    filters=[*analysis, mode_filter("multi_agent_direct")],
                 ),
                 widget(
                     evaluation,
@@ -471,8 +471,8 @@ def dashboard_manifest(prompt_versions: Sequence[str] = ()) -> list[dict]:
                 ),
                 widget(
                     evaluation,
-                    "Legacy attempts",
-                    filters=[*root, mode_filter("legacy")],
+                    "Direct attempts",
+                    filters=[*root, mode_filter("multi_agent_direct")],
                     chart="BAR_TIME_SERIES",
                 ),
                 widget(
