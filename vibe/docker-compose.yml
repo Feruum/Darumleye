@@ -28,6 +28,8 @@ services:
   agent:
     build:
       context: ./services/agent
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     restart: unless-stopped
     environment:
       AGENT_ENVIRONMENT: development
@@ -37,10 +39,23 @@ services:
       AGENT_LLM_BASE_URL: ${AGENT_LLM_BASE_URL:-}
       AGENT_LLM_API_KEY: ${AGENT_LLM_API_KEY:-}
       AGENT_LLM_MODEL: ${AGENT_LLM_MODEL:-}
+      AGENT_LLM_TIMEOUT_SECONDS: ${AGENT_LLM_TIMEOUT_SECONDS:-45}
+      AGENT_LLM_MAX_RETRIES: ${AGENT_LLM_MAX_RETRIES:-2}
+      AGENT_SPEC_REVIEW_TIMEOUT_SECONDS: ${AGENT_SPEC_REVIEW_TIMEOUT_SECONDS:-230}
+      AGENT_SPEC_REVIEW_LARGE_TIMEOUT_SECONDS: ${AGENT_SPEC_REVIEW_LARGE_TIMEOUT_SECONDS:-900}
+      AGENT_SPEC_REVIEW_CONCURRENCY: ${AGENT_SPEC_REVIEW_CONCURRENCY:-3}
+      AGENT_SPEC_REVIEW_USE_NACE: ${AGENT_SPEC_REVIEW_USE_NACE:-false}
       AGENT_EMBEDDING_BASE_URL: ${AGENT_EMBEDDING_BASE_URL:-}
       AGENT_EMBEDDING_API_KEY: ${AGENT_EMBEDDING_API_KEY:-}
       AGENT_EMBEDDING_MODEL: ${AGENT_EMBEDDING_MODEL:-}
       AGENT_USE_RERANKER: ${AGENT_USE_RERANKER:-false}
+      AGENT_RERANK_PROVIDER: ${AGENT_RERANK_PROVIDER:-generic}
+      NACE_API_KEY: ${NACE_API_KEY:-}
+      AGENT_NACE_MODEL: ${AGENT_NACE_MODEL:-drex-latest}
+      AGENT_NACE_TIMEOUT_SECONDS: ${AGENT_NACE_TIMEOUT_SECONDS:-8}
+      AGENT_RERANK_BASE_URL: ${AGENT_RERANK_BASE_URL:-}
+      AGENT_RERANK_API_KEY: ${AGENT_RERANK_API_KEY:-}
+      AGENT_RERANK_MODEL: ${AGENT_RERANK_MODEL:-reranker}
       AGENT_USE_HYBRID_SEARCH: ${AGENT_USE_HYBRID_SEARCH:-true}
       AGENT_RETRIEVAL_LEXICAL_MAX_CHUNKS: ${AGENT_RETRIEVAL_LEXICAL_MAX_CHUNKS:-2000}
       AGENT_CHROMA_HOST: chroma
@@ -48,6 +63,11 @@ services:
       AGENT_UPLOAD_DIR: /data/uploads
       AGENT_CHROMA_PERSIST_DIRECTORY: /data/chroma
       AGENT_INGESTION_MAX_FILE_BYTES: 26214400
+      AGENT_OTLP_ENDPOINT: ${AGENT_OTLP_ENDPOINT:-}
+      AGENT_OTLP_INSECURE: ${AGENT_OTLP_INSECURE:-true}
+      AGENT_LANGFUSE_BASE_URL: ${AGENT_LANGFUSE_BASE_URL:-}
+      AGENT_LANGFUSE_PUBLIC_KEY: ${AGENT_LANGFUSE_PUBLIC_KEY:-}
+      AGENT_LANGFUSE_SECRET_KEY: ${AGENT_LANGFUSE_SECRET_KEY:-}
     ports:
       - "127.0.0.1:${AGENT_PORT:-8001}:8000"
     volumes:
@@ -108,9 +128,158 @@ services:
       timeout: 5s
       retries: 20
 
+  # Optional isolated local LLM observability. No application service depends on it.
+  # Replace all local-demo-only credential defaults before starting the profile.
+  langfuse-web:
+    profiles: [langfuse]
+    image: docker.langfuse.com/langfuse/langfuse:${LANGFUSE_IMAGE_TAG:-4.86.0}
+    restart: unless-stopped
+    depends_on: &langfuse_local_dependencies
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${LANGFUSE_PORT:-3333}:3000"
+    environment:
+      <<: &langfuse_local_environment
+        NEXTAUTH_URL: http://localhost:${LANGFUSE_PORT:-3333}
+        DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD:-local-demo-only}@langfuse-postgres:5432/langfuse
+        SALT: ${LANGFUSE_SALT:-local-demo-only}
+        ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+        TELEMETRY_ENABLED: "false"
+        LANGFUSE_DISABLE_SIGNUP_ONBOARDING: "true"
+        CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+        CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+        CLICKHOUSE_USER: langfuse
+        CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-local-demo-only}
+        CLICKHOUSE_CLUSTER_ENABLED: "false"
+        REDIS_HOST: langfuse-redis
+        REDIS_PORT: 6379
+        REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD:-local-demo-only}
+        LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+        LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+        LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: langfuse
+        LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_PASSWORD:-local-demo-only}
+        LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+        LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+        LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+        LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+        LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+        LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: langfuse
+        LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_PASSWORD:-local-demo-only}
+        LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+        LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://langfuse-minio:9000
+        LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+        LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+        LANGFUSE_S3_BATCH_EXPORT_ENABLED: "false"
+        LANGFUSE_IN_APP_AGENT_ENABLED: "false"
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-local-demo-only-change-me}
+      # Next.js standalone uses HOSTNAME as its listener address. Docker's
+      # default container hostname otherwise excludes the loopback healthcheck.
+      HOSTNAME: 0.0.0.0
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:3000/api/public/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+  langfuse-worker:
+    profiles: [langfuse]
+    image: docker.langfuse.com/langfuse/langfuse-worker:${LANGFUSE_IMAGE_TAG:-4.86.0}
+    restart: unless-stopped
+    depends_on: *langfuse_local_dependencies
+    environment: *langfuse_local_environment
+  # Read-only aggregate monitor; emits local JSON log records, never external
+  # notifications. Idle until the operator configures the local project keys.
+  langfuse-alerts:
+    profiles: [langfuse]
+    image: python:3.12-alpine
+    restart: unless-stopped
+    read_only: true
+    environment:
+      AGENT_LANGFUSE_BASE_URL: http://langfuse-web:3000
+      AGENT_LANGFUSE_PUBLIC_KEY: ${AGENT_LANGFUSE_PUBLIC_KEY:-}
+      AGENT_LANGFUSE_SECRET_KEY: ${AGENT_LANGFUSE_SECRET_KEY:-}
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ./services/agent/scripts/check_langfuse_alerts.py:/app/check_langfuse_alerts.py:ro
+    command: ["python", "-u", "/app/check_langfuse_alerts.py", "--watch", "--interval-seconds", "${LANGFUSE_ALERT_INTERVAL_SECONDS:-300}"]
+    depends_on:
+      langfuse-web:
+        condition: service_healthy
+  langfuse-postgres:
+    profiles: [langfuse]
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_DB: langfuse
+      POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD:-local-demo-only}
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "langfuse", "-d", "langfuse"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  langfuse-clickhouse:
+    profiles: [langfuse]
+    image: clickhouse/clickhouse-server:26.3.62.3
+    restart: unless-stopped
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-local-demo-only}
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  langfuse-redis:
+    profiles: [langfuse]
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${LANGFUSE_REDIS_PASSWORD:-local-demo-only}", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - langfuse_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${LANGFUSE_REDIS_PASSWORD:-local-demo-only}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  langfuse-minio:
+    profiles: [langfuse]
+    image: cgr.dev/chainguard/minio:latest
+    restart: unless-stopped
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" /data'
+    environment:
+      MINIO_ROOT_USER: langfuse
+      MINIO_ROOT_PASSWORD: ${LANGFUSE_MINIO_PASSWORD:-local-demo-only}
+    volumes:
+      - langfuse_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
 volumes:
   postgres_18_data:
   postgres_18_test_data:
   seaweedfs_4_41_data:
   chroma_1_3_data:
   agent_local_data:
+  langfuse_postgres_data:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
+  langfuse_redis_data:
+  langfuse_minio_data:
