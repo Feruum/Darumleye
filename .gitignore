@@ -25,6 +25,7 @@ __pycache__/
 .data/
 .storage/
 uploads/
+!/vibe/backend/src/modules/uploads/
 
 # Local infrastructure state.
 .terraform/

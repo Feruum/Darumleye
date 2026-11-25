@@ -1,4 +1,5 @@
 import { createApp } from './app'
+import { applyRequestTimeout } from './http/request-timeouts'
 import { createBackendRuntime } from './runtime'
 import { shutdownBackend } from './shutdown'
 
@@ -13,7 +14,10 @@ const app = createApp({
 
 const server = Bun.serve({
   port: runtime.env.PORT,
-  fetch: app.fetch,
+  fetch(request, server) {
+    applyRequestTimeout(request, server)
+    return app.fetch(request)
+  },
 })
 
 console.log(`Backend listening on ${server.url}`)
