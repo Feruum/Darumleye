@@ -28,7 +28,8 @@ def enable_local_traces(monkeypatch):
     monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
 
 
-def test_langfuse_sdk_uses_shared_provider_and_blocks_media_before_export(monkeypatch):
+@pytest.mark.parametrize("mode", ["multi_agent", "multi_agent_direct"])
+def test_langfuse_sdk_uses_shared_provider_and_blocks_media_before_export(monkeypatch, mode):
     """Use the real SDK processor, not a fake Langfuse implementation."""
     from langfuse import Langfuse
     from langfuse._task_manager.media_manager import MediaManager
@@ -69,7 +70,7 @@ def test_langfuse_sdk_uses_shared_provider_and_blocks_media_before_export(monkey
             attributes={"gen_ai.prompt": "data:text/plain;base64,UFJJVkFURQ=="},
         ):
             pass
-        with telemetry.review_run(str(uuid4()), review_mode="multi_agent"):
+        with telemetry.review_run(str(uuid4()), review_mode=mode):
             with telemetry.review_stage("extraction", model="model-a") as stage:
                 stage.usage({"input_tokens": 17, "output_tokens": 5})
                 stage.reasoning_effort("low")
@@ -103,7 +104,7 @@ def test_langfuse_sdk_uses_shared_provider_and_blocks_media_before_export(monkey
             attributes["extraction"][
                 "langfuse.observation.metadata.review_mode"
             ].string_value
-            == "multi_agent"
+            == mode
         )
     finally:
         sdk.shutdown()

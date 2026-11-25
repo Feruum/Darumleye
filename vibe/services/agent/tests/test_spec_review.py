@@ -105,6 +105,38 @@ def payloads(first_quote=QUOTE, location=2, include_second=True):
     ]
 
 
+def expert_reply(data, observations=()):
+    """External model fixture for the scoped expert protocol."""
+    stage = data["stage"]
+    if stage == "multi_finalizer" or stage.startswith("multi_pair_"):
+        return {"merges": []}
+    if stage == "multi_recheck":
+        if "disagreements" in data:
+            return {"assessments": [{"id": item["id"], "status": "agrees", "comment": "Проверено."}
+                                    for item in data["disagreements"]]}
+        return {"status": "agrees", "comment": "Проверено."}
+    if stage.endswith("_individual"):
+        findings = [{**item, "criteria": ["Полнота"]} for item in observations
+                    if data["role"] == "gap_hunter"]
+        rows = []
+        for req in data["requirements"]:
+            failed = any(req["id"] in item["requirement_ids"] for item in findings)
+            rows.append({"id": req["id"], "checks": [
+                check(c, "fail" if failed and c == "Полнота" else "pass") for c in data["criteria"]
+            ]})
+        return {"requirements": rows, "findings": findings}
+    assert stage.endswith("_set")
+    return {
+        "summary": "Проверено.",
+        "set_checks": [{**check(c), "evidence": []} for c in data["criteria"]],
+        "readiness_checklist": [
+            {"id": key, "availability": "uncertain", "status": "uncertain", "comment": "Требует уточнения."}
+            for key in data["readiness_criteria"]
+        ],
+        "findings": [],
+    }
+
+
 def provider(replies, requests):
     core_index = 0
     saved = {}
@@ -118,6 +150,8 @@ def provider(replies, requests):
         signature = json.dumps(data, sort_keys=True)
         if signature in saved:
             reply = saved[signature]
+        elif stage.startswith("multi_"):
+            reply = expert_reply(data, replies[1]["findings"])
         elif stage == "reference":
             reply = replies[-1]
         elif stage == "set":
@@ -271,10 +305,13 @@ def test_review_sends_all_lines_and_returns_complete_report(
             "messages": [{"type": "human", "content": "What should I fix?"}]}
     assert review_client.post('/api/v1/chat/stream', headers={**HEADERS, "X-User-ID": "other"}, json=chat).status_code == 404
     assert review_client.post('/api/v1/chat/stream', headers=HEADERS, json={**chat, "thread_id": "other-review-thread"}).status_code == 422
-    assert len(requests) == 3
+    assert report["passport"]["review_mode"] == "multi_agent_direct"
+    assert report["evidence_graph"]["nodes"]
     stages = [json.loads(req["messages"][1]["content"])["stage"] for req in requests]
     assert stages[0] == "extraction"
-    assert set(stages[1:]) == {"individual", "set"}
+    assert "multi_finalizer" in stages
+    assert "multi_gap_hunter_individual" in stages
+    assert all(not stage.startswith("multi_pair_") for stage in stages)
     assert [
         unit["text"]
         for unit in json.loads(requests[0]["messages"][1]["content"])["units"]
@@ -610,7 +647,9 @@ def test_cli_writes_complete_report_with_controlled_model(
     assert "## Проверка каждого требования" in document
     assert "## Проверка набора требований" in document
     assert "## Итог" in document
-    assert len(requests) == 3
+    stages = [json.loads(item["messages"][1]["content"])["stage"] for item in requests]
+    assert stages.count("multi_finalizer") == 1
+    assert all(not stage.startswith("multi_pair_") for stage in stages)
 
 
 def test_cli_rejects_overwriting_input(tmp_path):
@@ -1168,7 +1207,8 @@ def test_reference_review_separate_and_all_five_categories(review_client, monkey
     assert "RF-001" in report["report_markdown"]
     assert REFERENCE_QUOTE in report["report_markdown"]
     assert QUOTE in report["report_markdown"]
-    assert len(requests) == 4
+    stages = [json.loads(item["messages"][1]["content"])["stage"] for item in requests]
+    assert stages.count("reference") == stages.count("multi_finalizer") == 1
     data = next(
         json.loads(item["messages"][1]["content"])
         for item in requests
@@ -1315,7 +1355,8 @@ def test_cli_reference_manifest_relative_to_its_file(tmp_path, monkeypatch):
         == "chroma_hybrid_local_features"
     )
     assert (tmp_path / "chroma").is_dir()
-    assert len(requests) == 4
+    assert report["passport"]["review_mode"] == "multi_agent_direct"
+    assert sum(json.loads(item["messages"][1]["content"])["stage"] == "reference" for item in requests) == 1
 
 
 def test_reference_input_limits(monkeypatch):

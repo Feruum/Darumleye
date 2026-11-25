@@ -6,45 +6,20 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from agent import spec_review_cli as cli
-from agent.services.spec_review import INDIVIDUAL_CRITERIA, SET_CRITERIA
+from test_spec_review import expert_reply
 
 
 class ControlledModel:
     model_name = "fixture"
 
     async def ainvoke(self, messages, **kwargs):
-        stage = json.loads(messages[-1].content)["stage"]
-        quote = {"start": 1, "end": 1, "quote": "REQ-1. Показывать баланс."}
-
-        def checks(criteria):
-            return [
-                {"criterion": criterion, "status": "pass", "comment": "Проверено"}
-                for criterion in criteria
-            ]
-
-        if stage == "extraction":
-            reply = {
-                "requirements": [
-                    {"source_id": "REQ-1", "text": quote["quote"], "evidence": quote}
-                ]
-            }
-        elif stage == "individual":
-            reply = {
-                "requirements": [
-                    {"id": "R-001", "checks": checks(INDIVIDUAL_CRITERIA)}
-                ],
-                "findings": [],
-            }
-        elif stage == "set":
-            reply = {
-                "summary": "Проверено",
-                "set_checks": [
-                    {**item, "evidence": [quote]} for item in checks(SET_CRITERIA)
-                ],
-                "findings": [],
-            }
+        data = json.loads(messages[-1].content)
+        if data["stage"] == "extraction":
+            text = "REQ-1. Показывать баланс."
+            reply = {"requirements": [{"source_id": "REQ-1", "text": text,
+                                       "evidence": {"start": 1, "end": 1, "quote": text}}]}
         else:
-            pytest.fail(f"Unexpected model stage: {stage}")
+            reply = expert_reply(data)
         return AIMessage(content=json.dumps(reply, ensure_ascii=False))
 
 
@@ -68,7 +43,7 @@ def test_short_command_writes_markdown_and_shows_real_progress(configured_cli, c
     printed = capsys.readouterr()
     assert all(
         label in printed.err
-        for label in ("Извлечение", "Индивидуальная", "Проверка набора")
+        for label in ("Извлечение", "Эксперт бизнес-логики", "Финализация экспертных наблюдений")
     )
     assert "Нужна доработка" in printed.out  # No checklist assessment in the controlled model.
     assert str(output) in printed.out
@@ -128,7 +103,8 @@ def test_explicit_legacy_command_remains_supported(configured_cli, capsys):
 def test_review_mode_cli_defaults_and_explicit_selection():
     parser = cli.build_parser()
     assert parser.parse_args(["requirements.md"]).review_mode == "multi_agent"
-    assert parser.parse_args(["requirements.md", "--review-mode", "legacy"]).review_mode == "legacy"
+    assert parser.parse_args(["requirements.md", "--review-mode", "legacy"]).review_mode == "multi_agent_direct"
+    assert parser.parse_args(["requirements.md", "--review-mode", "multi_agent_direct"]).review_mode == "multi_agent_direct"
     assert parser.parse_args(["requirements.md", "--review-mode", "multi_agent"]).review_mode == "multi_agent"
     with pytest.raises(SystemExit):
         parser.parse_args(["requirements.md", "--review-mode", "unknown"])
@@ -140,10 +116,10 @@ def test_cli_usage_written_separately_without_inventing_provider_cost(configured
     metrics = source.with_name("usage.json")
     assert cli.main(["--review-mode", "legacy", str(source), "--env-file", str(env), "--output", str(report), "--metrics-output", str(metrics), "--quiet"]) == 0
     data = json.loads(metrics.read_text())
-    assert data["model_calls"] == 3
+    assert data["model_calls"] == 11  # Extraction, four individual and five set tasks, and the global finalizer.
     assert data["input_tokens"] is None and data["output_tokens"] is None
     assert data["cost_usd"] is None
-    assert json.loads(report.read_text())["passport"]["review_mode"] == "legacy"
+    assert json.loads(report.read_text())["passport"]["review_mode"] == "multi_agent_direct"
     assert capsys.readouterr().out.strip() == str(report)
 
 
@@ -228,7 +204,7 @@ def test_checkpoint_resume_shows_saved_work_and_never_calls_model(
             pytest.fail("Accepted stages must be restored from the checkpoint")
 
     monkeypatch.setattr(cli, "ChatOpenAI", lambda **kwargs: NoCallsModel())
-    assert cli.main([*command, "--review-mode", "legacy"]) == 0
+    assert cli.main([*command, "--review-mode", "multi_agent_direct"]) == 0
     assert "контрольная точка" in capsys.readouterr().err
     first = json.loads(source.with_name("requirements.review.json").read_text())
     resumed = json.loads(source.with_name("requirements.review-2.json").read_text())

@@ -83,6 +83,46 @@ async def test_multi_agent_parallel_coverage_and_provenance():
     assert any(node.kind == "evidence" and node.evidence.quote == ANCHOR["quote"] for node in graph.nodes)
 
 
+@pytest.mark.asyncio
+async def test_direct_route_preserves_expert_provenance_and_uses_only_the_central_medium_validator():
+    class DirectChat(ExpertChat):
+        model_name = "gpt-6-luna"
+
+        def __init__(self):
+            super().__init__()
+            self.efforts = []
+
+        async def ainvoke(self, messages, **kwargs):
+            stage = json.loads(messages[1].content)["stage"]
+            self.efforts.append((stage, kwargs.get("reasoning_effort")))
+            return await super().ainvoke(messages, **kwargs)
+
+    chat = DirectChat()
+    report = await review_specification(source(), chat, review_mode="multi_agent_direct")
+
+    assert report.passport.review_mode == "multi_agent_direct"
+    assert all(not stage.startswith("multi_pair_") for stage, _ in chat.efforts)
+    finalizers = [data for data in chat.stages if data["stage"] == "multi_finalizer"]
+    assert len(finalizers) == 1
+    finalizer = finalizers[0]
+    assert "paired_summaries" not in finalizer
+    assert {card["role"]: card["status"] for card in finalizer["coverage_cards"]} == {
+        "logic_inspector": "completed", "scenario_builder": "completed", "gap_hunter": "completed",
+        "contract_inspector": "completed", "risk_inspector": "completed", "reference_inspector": "skipped",
+    }
+    assert {"logic_inspector", "gap_hunter"} == set(finalizer["groups"][0]["roles"])
+    assert all(effort == ("medium" if stage in {"multi_finalizer", "multi_recheck"} else "low")
+               for stage, effort in chat.efforts)
+    assert chat.peak <= 3
+    assert len(report.findings) == 1
+    assert all([row.criterion for row in req.checks] == list(INDIVIDUAL_CRITERIA) for req in report.requirements)
+    assert [row.criterion for row in report.set_checks] == list(SET_CRITERIA)
+    assert [row.id for row in report.readiness_checklist] == list(READINESS_CRITERIA)
+    graph = report.evidence_graph
+    contributors = {edge.source for edge in graph.edges if edge.kind == "contributes_to" and edge.target == "D-001"}
+    assert {node.role for node in graph.nodes if node.id in contributors} == {"logic_inspector", "gap_hunter"}
+
+
 class VariantChat(ExpertChat):
     def __init__(self, variant):
         super().__init__()
@@ -134,14 +174,15 @@ async def test_local_pair_semantic_merge_retains_every_line_of_provenance():
 
 
 @pytest.mark.asyncio
-async def test_invalid_finalizer_merge_falls_back_without_losing_findings():
+@pytest.mark.parametrize("review_mode", ["multi_agent", "multi_agent_direct"])
+async def test_invalid_finalizer_merge_falls_back_without_losing_findings(review_mode):
     def variant(data, result):
         if data["stage"] == "multi_gap_hunter_set":
             result["findings"][0]["issue"] = "Период получения выписки не определён."
         elif data["stage"] == "multi_finalizer":
             result["merges"] = [["O-unknown", "O-0001"]]
 
-    report = await review_specification(source(), VariantChat(variant), review_mode="multi_agent")
+    report = await review_specification(source(), VariantChat(variant), review_mode=review_mode)
     assert report.evidence_graph.finalization_status == "deterministic_fallback"
     assert len(report.findings) == 2
     assert report.findings[0].severity == "high"
@@ -183,8 +224,9 @@ async def test_recheck_limit_and_unresolved_disputes_prevent_positive_assessment
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("review_mode", ["multi_agent", "multi_agent_direct"])
 @pytest.mark.parametrize("invalid_reference",[False,True])
-async def test_reference_pair_keeps_normative_findings_separate(monkeypatch,invalid_reference):
+async def test_reference_validation_keeps_normative_findings_separate(monkeypatch,invalid_reference,review_mode):
     from agent.services import spec_multi_agent
     from agent.services.spec_reference_review import (
         ReferenceDocument, ReferenceObservation, ReferenceSource, ReferenceReview,
@@ -212,8 +254,16 @@ async def test_reference_pair_keeps_normative_findings_separate(monkeypatch,inva
                 "kind":"other", "severity":"medium", "issue":"Не описано ожидаемое поведение.",
                 "recommendation":"Уточнить.", "requirement_ids":["R-001"], "criteria":[], "evidence":[ANCHOR],
             }]
-    report = await review_specification(source(), VariantChat(variant), review_mode="multi_agent",
+    chat = VariantChat(variant)
+    report = await review_specification(source(), chat, review_mode=review_mode,
                                         references=[ReferenceDocument(reference_source, document)])
+    if review_mode == "multi_agent_direct":
+        assert not any(data["stage"].startswith("multi_pair_") for data in chat.stages)
+        finalizer = next(data for data in chat.stages if data["stage"] == "multi_finalizer")
+        assert finalizer["reference_cards_are_separate_from_core"] is True
+        assert [card["id"] for card in finalizer["reference_cards"]] == ([] if invalid_reference else ["RF-001"])
+        card = next(card for card in finalizer["coverage_cards"] if card["role"] == "reference_inspector")
+        assert card["status"] == ("unavailable" if invalid_reference else "completed")
     assert len(report.findings) == 2
     if invalid_reference:
         assert report.reference_review.status == "unavailable"

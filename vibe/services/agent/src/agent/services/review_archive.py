@@ -18,6 +18,7 @@ from agent.retrieval.ranking import keyword_rank, tokens
 from agent.services.spec_document import Specification
 from agent.services.spec_evidence_graph import EvidenceGraph
 from agent.services.spec_reference_review import ReferenceDocument
+from agent.services.spec_review_mode import ACTIVE_REVIEW_MODES
 
 if TYPE_CHECKING:
     from agent.services.spec_review import ReviewReport
@@ -103,7 +104,7 @@ def validate_archive_graph(specification: Specification, data: dict) -> None:
     """Prevent incomplete or unverified evidence from becoming an archived report."""
     raw = data.get("evidence_graph")
     if raw is None:
-        if data["passport"].get("review_mode") == "multi_agent":
+        if data["passport"].get("review_mode") in ACTIVE_REVIEW_MODES:
             raise ValueError("A multi-agent report must preserve its evidence graph")
         return
     graph = EvidenceGraph.model_validate(raw)

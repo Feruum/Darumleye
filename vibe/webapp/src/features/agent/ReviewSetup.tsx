@@ -1,4 +1,4 @@
-import { AGENT_DEFAULT_REVIEW_MODE, type AgentReviewMode } from '@web-app-demo/contracts'
+import { AGENT_DEFAULT_REVIEW_MODE, agentReviewModeLabels, type AgentReviewSubmissionMode } from '@web-app-demo/contracts'
 import {
   ArrowRight01Icon, ArrowUp02Icon, BookOpen01Icon, CheckmarkCircle02Icon,
   Clock01Icon, File01Icon, Search01Icon, Tick02Icon,
@@ -46,8 +46,8 @@ export function ReviewSteps({ hasFile, phase }: { hasFile: boolean; phase: Revie
 type SetupProps = {
   file?: File
   pendingRecovery?: boolean
-  reviewMode?: AgentReviewMode
-  onReviewModeChange?: (mode: AgentReviewMode) => void
+  reviewMode?: AgentReviewSubmissionMode
+  onReviewModeChange?: (mode: AgentReviewSubmissionMode) => void
   references: ReferenceDraft[]
   fileError?: string
   referenceError?: string
@@ -118,8 +118,8 @@ export function ReviewSetup({
           </div>
           <fieldset className="sr-review-mode-options">
             <Typography as="legend" variant="bodySmMedium">Режим проверки</Typography>
-            <label><input type="radio" name={`${inputId}-review-mode`} checked={reviewMode === 'legacy'} onChange={() => onReviewModeChange?.('legacy')} /><span><Typography as="strong" variant="bodySmMedium">Стандартный</Typography><Typography as="span" variant="caption">Базовая проверка требований.</Typography></span></label>
-            <label><input type="radio" name={`${inputId}-review-mode`} checked={reviewMode === 'multi_agent'} onChange={() => onReviewModeChange?.('multi_agent')} /><span><Typography as="strong" variant="bodySmMedium">Мультиагентный</Typography><Typography as="span" variant="caption">Независимые эксперты и граф доказательств. До 15 минут анализа.</Typography></span></label>
+            <label><input type="radio" name={`${inputId}-review-mode`} checked={reviewMode === 'multi_agent'} onChange={() => onReviewModeChange?.('multi_agent')} /><span><Typography as="strong" variant="bodySmMedium">{agentReviewModeLabels.multi_agent}</Typography><Typography as="span" variant="caption">Три парных валидатора сверяют выводы экспертов перед общей проверкой.</Typography></span></label>
+            <label><input type="radio" name={`${inputId}-review-mode`} checked={reviewMode === 'multi_agent_direct'} onChange={() => onReviewModeChange?.('multi_agent_direct')} /><span><Typography as="strong" variant="bodySmMedium">{agentReviewModeLabels.multi_agent_direct}</Typography><Typography as="span" variant="caption">Общий валидатор получает выводы каждого эксперта напрямую.</Typography></span></label>
           </fieldset>
           {file && <ReferenceSourcesInput references={references} disabled={false} onChange={onReferencesChange} onFileError={onReferenceError} />}
           {referenceError && <Alert variant="destructive"><AlertTitle>Проверьте источники</AlertTitle><AlertDescription>{referenceError}</AlertDescription></Alert>}

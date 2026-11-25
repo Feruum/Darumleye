@@ -111,6 +111,7 @@ def render_markdown(report: "ReviewReport") -> str:
         f"- Модель: {safe_text(p.model)}",
         f"- Версия агента: {safe_text(p.agent_version)}",
         *(["- Режим: мультиагентное ревью (Evidence-Driven)"] if getattr(p, "review_mode", "legacy") == "multi_agent" else []),
+        *(["- Режим: мультиагентное ревью с прямой валидацией"] if getattr(p, "review_mode", "legacy") == "multi_agent_direct" else []),
         *([f"- ID запуска: `{p.run_id}`"] if p.run_id else []),
         *([f"- SHA-256 ТЗ: `{p.document_sha256}`"] if p.document_sha256 else []),
         "- Метод: статический анализ качества требований на основе характеристик ISO/IEC/IEEE 29148.",

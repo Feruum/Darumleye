@@ -201,9 +201,16 @@ const agentSpecSetCheckSchema = agentSpecCheckSchema.extend({
   evidence: z.array(agentSpecEvidenceSchema),
 })
 
-export const agentReviewModeSchema = z.enum(['legacy', 'multi_agent'])
+export const agentReviewModeSchema = z.enum(['legacy', 'multi_agent', 'multi_agent_direct'])
 export type AgentReviewMode = z.infer<typeof agentReviewModeSchema>
-export const AGENT_DEFAULT_REVIEW_MODE: AgentReviewMode = 'multi_agent'
+export const agentReviewSubmissionModeSchema = agentReviewModeSchema.transform(mode => mode === 'legacy' ? 'multi_agent_direct' : mode)
+export type AgentReviewSubmissionMode = z.infer<typeof agentReviewSubmissionModeSchema>
+export const AGENT_DEFAULT_REVIEW_MODE: AgentReviewSubmissionMode = 'multi_agent'
+export const agentReviewModeLabels: Record<AgentReviewMode, string> = {
+  legacy: 'Стандартный',
+  multi_agent: 'Парная валидация',
+  multi_agent_direct: 'Прямая валидация',
+}
 
 export const agentEvidenceRoleSchema = z.enum(['logic_inspector', 'scenario_builder', 'gap_hunter', 'contract_inspector', 'risk_inspector', 'reference_inspector', 'code_checks'])
 export const agentEvidenceKindSchema = z.enum(['requirement', 'evidence', 'observation', 'counterexample', 'finding', 'question', 'reference'])
@@ -476,7 +483,7 @@ export const agentSpecReviewSchema = z.object({
   }
 }).superRefine(({ passport, evidence_graph: graph, requirements, findings, clarification_questions, reference_review }, context) => {
   if (!graph) {
-    if (passport.review_mode === 'multi_agent') context.addIssue({ code: 'custom', path: ['evidence_graph'], message: 'Multi-agent review must preserve its evidence graph.' })
+    if (passport.review_mode && passport.review_mode !== 'legacy') context.addIssue({ code: 'custom', path: ['evidence_graph'], message: 'Multi-agent review must preserve its evidence graph.' })
     return
   }
   const requirementIds = new Set(requirements.map(item => item.id))

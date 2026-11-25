@@ -31,6 +31,7 @@ from agent.services.spec_review import (
     ReviewReport,
     review_specification_configured,
 )
+from agent.services.spec_review_mode import ACTIVE_REVIEW_MODES, new_review_mode
 from agent.services.spec_reference_review import ReferenceDocument, load_reference_files
 from agent.services.spec_reference_context import configured_reference_retriever
 from agent.spec_cli_progress import ProgressChat, ReviewProgress, elapsed_label
@@ -256,8 +257,9 @@ def print_summary(report: ReviewReport, path: Path, seconds: float, *, stream) -
         f"  Модель:                  {terminal_text(report.passport.model)}",
         file=stream,
     )
-    if report.passport.review_mode == "multi_agent":
-        print("  Режим:                   мультиагентный", file=stream)
+    if report.passport.review_mode in ACTIVE_REVIEW_MODES:
+        mode = "прямая валидация" if report.passport.review_mode == "multi_agent_direct" else "парная валидация"
+        print(f"  Режим:                   мультиагентный ({mode})", file=stream)
         if graph := report.evidence_graph:
             print(f"  Граф доказательств:      {len(graph.nodes)} узлов / {len(graph.edges)} связей", file=stream)
             print(f"  Спорных выводов:         {graph.unresolved_count}", file=stream)
@@ -362,9 +364,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--review-mode",
-        choices=("legacy", "multi_agent"),
+        type=new_review_mode,
+        choices=ACTIVE_REVIEW_MODES,
         default="multi_agent",
-        help="Режим анализа: обычный или независимое мультиагентное ревью",
+        help="Мультиагентное ревью с парной или прямой валидацией",
     )
     parser.add_argument("--metrics-output", type=Path, help="Отдельный JSON с наблюдаемыми метриками генерации")
     parser.add_argument("--run-id", type=UUID, help="UUID логического прогона для связи повторных попыток (в том числе проверок с регламентами)")

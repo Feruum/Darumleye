@@ -130,6 +130,11 @@ describe('specification review contract', () => {
     }
     const updated: AgentSpecReview = { ...review, passport: { ...review.passport, review_mode: 'multi_agent' }, evidence_graph: graph }
     expect(agentSpecReviewSchema.parse(updated)).toEqual(updated)
+    const direct: AgentSpecReview = { ...updated, passport: { ...review.passport, review_mode: 'multi_agent_direct' } }
+    expect(agentSpecReviewSchema.parse(direct)).toEqual(direct)
+    expect(agentSpecReviewSchema.safeParse({ ...direct, evidence_graph: null }).success).toBe(false)
+    const historical: AgentSpecReview = { ...review, passport: { ...review.passport, review_mode: 'legacy' } }
+    expect(agentSpecReviewSchema.parse(historical)).toEqual(historical)
     const detail = { id: '0196f6f8-6600-7000-8000-000000000001', report: updated, source_units: ['', '', '', evidence.quote] }
     expect(agentCompletedReviewDetailSchema.safeParse(detail).success).toBe(true)
     expect(agentCompletedReviewDetailSchema.safeParse({ ...detail, source_units: ['', '', '', 'wrong source'] }).success).toBe(false)

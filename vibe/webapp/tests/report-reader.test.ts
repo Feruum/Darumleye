@@ -178,8 +178,11 @@ test('the graph tab is available for multi-agent reports without changing archiv
     ...report.findings.map((item, index) => ({ id: `D-${String(index + 1).padStart(3, '0')}`, kind: 'finding', finding_id: `D-${String(index + 1).padStart(3, '0')}`, title: item.issue })),
     ...(report.clarification_questions ?? []).map(item => ({ id: item.id, kind: 'question', question_id: item.id, title: item.question })),
   ]
-  const updated = agentSpecReviewSchema.parse({ ...report, passport: { ...report.passport, review_mode: 'multi_agent' }, evidence_graph: { schema_version: 1, nodes, edges: [], experts: [], finalization_status: 'completed', unresolved_count: 0 } })
-  expect(renderToStaticMarkup(createElement(SpecReviewReport, { report: updated }))).toContain('Граф доказательств')
+  for (const mode of ['multi_agent', 'multi_agent_direct']) {
+    const updated = agentSpecReviewSchema.parse({ ...report, passport: { ...report.passport, review_mode: mode }, evidence_graph: { schema_version: 1, nodes, edges: [], experts: [], finalization_status: 'completed', unresolved_count: 0 } })
+    const markup = renderToStaticMarkup(createElement(SpecReviewReport, { report: updated }))
+    expect(markup).toContain('Граф доказательств')
+  }
 })
 
 test('a graph citation on OCR uses extracted text and a manual display choice is valid only until the next citation jump', () => {

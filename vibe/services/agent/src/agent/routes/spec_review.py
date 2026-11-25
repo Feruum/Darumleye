@@ -5,10 +5,11 @@ from dataclasses import dataclass
 from hashlib import sha256
 import json
 from pathlib import Path
-from typing import Literal
+from typing import Annotated
 from uuid import UUID
 
 import structlog
+from pydantic import BeforeValidator
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
@@ -32,6 +33,7 @@ from agent.services.spec_reference_review import (
     prepare_references,
     reference_byte_limit,
 )
+from agent.services.spec_review_mode import REVIEW_MODES, ActiveReviewMode, ReviewMode, new_review_mode
 from agent.services.spec_review_jobs import MAX_REVIEW_JOB_SECONDS, ReviewJobCapacityError, ReviewJobFailure, ReviewJobs, get_review_job, public_job
 from agent.services.spec_review import (
     MAX_REVIEW_FILE_BYTES,
@@ -45,7 +47,7 @@ from agent.utils.review_telemetry import review_run, review_stage
 
 router = APIRouter(prefix="/api/v1", tags=["specification review"])
 logger = structlog.get_logger(__name__)
-ReviewMode = Literal["legacy", "multi_agent"]
+NewReviewMode = Annotated[ActiveReviewMode, BeforeValidator(new_review_mode), Form()]
 
 
 def review_jobs(app: FastAPI, sessions=async_session) -> ReviewJobs:
@@ -128,7 +130,7 @@ class ReviewUpload:
             if offset != len(combined):
                 raise ValueError("Invalid stored reference data")
             mode = data.get("review_mode", "legacy")
-            if mode not in ("legacy", "multi_agent"):
+            if mode not in REVIEW_MODES:
                 raise ValueError("Invalid stored review mode")
             return cls(data["filename"], data["content_type"], primary, entries, inputs, mode)
         except (ValueError, TypeError, KeyError, AttributeError) as error:
@@ -296,7 +298,7 @@ async def read_review_upload(
             content,
             entries,
             inputs,
-            review_mode,
+            new_review_mode(review_mode),
         )
     except SpecificationValidationError as error:
         raise HTTPException(
@@ -396,13 +398,13 @@ async def create_spec_review(
     file: UploadFile = File(...),
     reference_files: list[UploadFile] | None = File(default=None),
     reference_manifest: str | None = Form(default=None),
-    review_mode: ReviewMode = Form(default="multi_agent"),
+    review_mode: NewReviewMode = "multi_agent",
     user: UserProfile = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> ReviewReport:
     upload = await read_review_upload(file, reference_files, reference_manifest, review_mode)
     # Keep the original synchronous API and its validation order intact.
-    with review_run(None, review_mode=review_mode, source="api") as trace_run:
+    with review_run(None, review_mode=upload.review_mode, source="api") as trace_run:
         specification, report = await execute_review(upload, lambda: configured_agent(request), user.user_id, run_id=trace_run.run_id)
         try:
             with review_stage("archive"):
@@ -448,7 +450,7 @@ async def create_spec_review_job(
     file: UploadFile = File(...),
     reference_files: list[UploadFile] | None = File(default=None),
     reference_manifest: str | None = Form(default=None),
-    review_mode: ReviewMode = Form(default="multi_agent"),
+    review_mode: NewReviewMode = "multi_agent",
     user: UserProfile = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):

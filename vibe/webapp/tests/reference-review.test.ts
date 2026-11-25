@@ -82,5 +82,6 @@ test('multipart always sends the chosen review strategy, including explicit lega
   const file = new File(['Requirement'], 'spec.md')
   expect(buildSpecificationReviewFormData(file, [], 'multi_agent').get('review_mode')).toBe('multi_agent')
   expect(buildSpecificationReviewFormData(file).get('review_mode')).toBe('multi_agent')
-  expect(buildSpecificationReviewFormData(file, [], 'legacy').get('review_mode')).toBe('legacy')
+  expect(buildSpecificationReviewFormData(file, [], 'multi_agent_direct').get('review_mode')).toBe('multi_agent_direct')
+  expect(buildSpecificationReviewFormData(file, [], 'legacy').get('review_mode')).toBe('multi_agent_direct')
 })

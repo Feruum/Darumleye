@@ -59,14 +59,15 @@ test('setup has only one entry point to the prepared example', () => {
   expect(markup).not.toContain('Взять учебный пример')
 })
 
-test('setup shows multi-agent mode selected by default and honors explicit legacy', () => {
+test('setup offers paired and direct validation and selects paired by default', () => {
   const noop = () => {}
   const props = { references: [], cancelled: false, loadingExample: false, onFileSelect: noop, onReferencesChange: noop, onReferenceError: noop, onViewExample: noop, onSubmit: noop }
   const multi = renderToStaticMarkup(createElement(ReviewSetup, props))
-  const legacy = renderToStaticMarkup(createElement(ReviewSetup, { ...props, reviewMode: 'legacy' }))
+  const direct = renderToStaticMarkup(createElement(ReviewSetup, { ...props, reviewMode: 'multi_agent_direct' }))
   const selectedRadioLabel = (markup: string) => markup.match(/<label><input[^>]*type="radio"[^>]*checked=""[^>]*>.*?<\/label>/)?.[0]
-  expect(selectedRadioLabel(legacy)).toContain('Стандартный')
-  expect(selectedRadioLabel(multi)).toContain('Мультиагентный')
+  expect(selectedRadioLabel(direct)).toContain('Прямая валидация')
+  expect(selectedRadioLabel(multi)).toContain('Парная валидация')
+  expect(multi.match(/type="radio"/g)).toHaveLength(2)
 })
 
 test('reattaching a durable job hides upload and mode editing and permits recovery without an original file', () => {

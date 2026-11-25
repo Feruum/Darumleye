@@ -53,6 +53,7 @@ from agent.services.spec_reference_review import (
 )
 from agent.services.spec_review_context import SetScope, is_large_document, requirement_batches, requirement_terms, selected_units, set_scopes, terms
 from agent.services.spec_report import render_markdown
+from agent.services.spec_review_mode import ACTIVE_REVIEW_MODES, REVIEW_MODES, ReviewMode
 from agent.utils.review_telemetry import review_stage
 
 import structlog
@@ -226,7 +227,7 @@ class Passport(StructuredReview):
     agent_version: str
     run_id: str | None = None
     document_sha256: str | None = None
-    review_mode: Literal["legacy", "multi_agent"] = "legacy"
+    review_mode: ReviewMode = "legacy"
 
 
 class Statistics(StructuredReview):
@@ -1534,16 +1535,16 @@ async def review_specification(
     reference_verifier: NaceReferenceVerifier | None = None,
     concurrency: int = REVIEW_CONCURRENCY,
     run_id: str | None = None,
-    review_mode: Literal["legacy", "multi_agent"] = "multi_agent",
+    review_mode: ReviewMode = "multi_agent",
 ) -> ReviewReport:
     from agent.utils.review_telemetry import review_run
 
-    if review_mode not in {"legacy", "multi_agent"}:
+    if review_mode not in REVIEW_MODES:
         raise ValueError("Unknown review mode")
     run_id = str(UUID(run_id)) if run_id is not None else str(uuid4())
     with review_run(run_id, review_mode=review_mode, source="pipeline") as run:
         with review_stage("review-analysis") as analysis:
-            if review_mode == "multi_agent":
+            if review_mode in ACTIVE_REVIEW_MODES:
                 from agent.services.spec_multi_agent import review_multi_agent
 
                 report = await review_multi_agent(
@@ -1551,6 +1552,7 @@ async def review_specification(
                     verifier=verifier, references=references,
                     reference_retriever_factory=reference_retriever_factory,
                     reference_verifier=reference_verifier, concurrency=concurrency,
+                    review_mode=review_mode,
                 )
             else:
                 report = await _review_specification(
@@ -1649,11 +1651,11 @@ async def review_specification_configured(
     reference_retriever_factory: ReferenceRetrieverFactory | None = None,
     timeout_seconds: int | None = None,
     run_id: str | None = None,
-    review_mode: Literal["legacy", "multi_agent"] = "multi_agent",
+    review_mode: ReviewMode = "multi_agent",
 ) -> ReviewReport:
     """Use identical opt-in assessment and total deadline for HTTP and CLI runs."""
     duration = (
-        (configuration.spec_review_large_timeout_seconds if review_mode == "multi_agent" or is_large_document(specification) else configuration.spec_review_timeout_seconds)
+        (configuration.spec_review_large_timeout_seconds if review_mode in ACTIVE_REVIEW_MODES or is_large_document(specification) else configuration.spec_review_timeout_seconds)
         if timeout_seconds is None
         else timeout_seconds
     )

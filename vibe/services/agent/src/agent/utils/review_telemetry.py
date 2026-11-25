@@ -149,7 +149,7 @@ _MODEL_RE = re.compile(r"^[A-Za-z0-9./:_-]{1,120}$")
 _ERROR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,79}$")
 _HASH_RE = re.compile(r"^[a-f0-9]{64}$")
 _OBSERVATION_ID_RE = re.compile(r"^O-(?:code-)?[0-9]{1,8}$")
-_MODES = {"legacy", "multi_agent"}
+_MODES = {"legacy", "multi_agent", "multi_agent_direct"}
 _SOURCES = {"cli", "api", "worker", "pipeline"}
 _STATUSES = {
     "completed",
