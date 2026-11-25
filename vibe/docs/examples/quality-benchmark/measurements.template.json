@@ -1,0 +1,17 @@
+{
+  "source_sha256": "",
+  "report_sha256": "",
+  "cost_currency": null,
+  "notes": "Record the paired task, reviewer role, timing/cost evidence, same acceptance rubric, and measurement conditions. Leave missing measurements null.",
+  "manual": {
+    "wall_seconds": null,
+    "analyst_active_seconds": null,
+    "direct_cost": null
+  },
+  "assisted": {
+    "generation_seconds": null,
+    "wall_seconds": null,
+    "analyst_active_seconds": null,
+    "direct_cost": null
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "source": "workflow-revised.md",
+  "description": "Synthetic booking flow revised with fictional approved decisions. The four injected defects were addressed; no claim that the control is defect-free.",
+  "comparison_group": "museum-booking-v1",
+  "defects": [],
+  "requirements": [
+    {
+      "id": "E-01",
+      "source_id": "VIS-01",
+      "anchors": [
+        {
+          "line": 5,
+          "quote": "Клиент выбирает дату посещения"
+        }
+      ]
+    },
+    {
+      "id": "E-02",
+      "source_id": "VIS-01",
+      "anchors": [
+        {
+          "line": 5,
+          "quote": "клиент получает номер брони"
+        }
+      ]
+    },
+    {
+      "id": "E-03",
+      "source_id": "VIS-02",
+      "anchors": [
+        {
+          "line": 6,
+          "quote": "действует 24 часа"
+        }
+      ]
+    },
+    {
+      "id": "E-04",
+      "source_id": "VIS-03",
+      "anchors": [
+        {
+          "line": 7,
+          "quote": "Если оплата отклонена, бронь остаётся неподтверждённой"
+        }
+      ]
+    },
+    {
+      "id": "E-05",
+      "source_id": "VIS-04",
+      "anchors": [
+        {
+          "line": 8,
+          "quote": "присылает клиенту подтверждение"
+        }
+      ]
+    },
+    {
+      "id": "E-10",
+      "source_id": "VIS-04",
+      "anchors": [
+        {
+          "line": 8,
+          "quote": "музей сообщает клиенту об отказе"
+        }
+      ]
+    },
+    {
+      "id": "E-06",
+      "source_id": "VIS-05",
+      "anchors": [
+        {
+          "line": 9,
+          "quote": "не позднее 2 секунд после выбора пункта меню"
+        }
+      ]
+    },
+    {
+      "id": "E-07",
+      "source_id": "VIS-06",
+      "anchors": [
+        {
+          "line": 10,
+          "quote": "скачать подтверждение брони в формате PDF"
+        }
+      ]
+    },
+    {
+      "id": "E-09",
+      "source_id": null,
+      "anchors": [
+        {
+          "line": 11,
+          "quote": "список броней показывает дату посещения и номер брони"
+        }
+      ]
+    }
+  ],
+  "defect_annotation_scope": "deliberately injected defects only; other defects may remain",
+  "requirement_annotation_scope": "enumerated explicit obligations in the synthetic source; paraphrases require review"
+}

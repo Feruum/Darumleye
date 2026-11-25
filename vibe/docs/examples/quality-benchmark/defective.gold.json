@@ -1,0 +1,149 @@
+{
+  "source": "defective.md",
+  "description": "Synthetic defect injection. Four annotated defects; not an exhaustive expert review.",
+  "defects": [
+    {
+      "id": "G-01",
+      "kinds": [
+        "ambiguous",
+        "untestable",
+        "other"
+      ],
+      "lines": [
+        3
+      ],
+      "description": "Оценка «удобный» не определена.",
+      "anchors": [
+        {
+          "line": 3,
+          "quote": "удобный список услуг"
+        }
+      ]
+    },
+    {
+      "id": "G-02",
+      "kinds": [
+        "ambiguous",
+        "untestable",
+        "missing"
+      ],
+      "lines": [
+        4
+      ],
+      "description": "Нет измеримого времени обновления.",
+      "anchors": [
+        {
+          "line": 4,
+          "quote": "достаточно быстро"
+        }
+      ]
+    },
+    {
+      "id": "G-03",
+      "kinds": [
+        "conflict"
+      ],
+      "lines": [
+        5,
+        6
+      ],
+      "description": "Противоречие часов доступности одной справки.",
+      "anchors": [
+        {
+          "line": 5,
+          "quote": "только с 09:00 до 18:00"
+        },
+        {
+          "line": 6,
+          "quote": "доступна круглосуточно"
+        }
+      ]
+    },
+    {
+      "id": "G-04",
+      "kinds": [
+        "other"
+      ],
+      "lines": [
+        7,
+        8
+      ],
+      "description": "Два одинаковых требования с разными идентификаторами.",
+      "anchors": [
+        {
+          "line": 7,
+          "quote": "DOC-05. В системе должна быть ссылка на справку."
+        },
+        {
+          "line": 8,
+          "quote": "DOC-06. В системе должна быть ссылка на справку."
+        }
+      ]
+    }
+  ],
+  "comparison_group": "service-directory-v1",
+  "requirements": [
+    {
+      "id": "E-01",
+      "source_id": "DOC-01",
+      "anchors": [
+        {
+          "line": 3,
+          "quote": "удобный список услуг"
+        }
+      ]
+    },
+    {
+      "id": "E-02",
+      "source_id": "DOC-02",
+      "anchors": [
+        {
+          "line": 4,
+          "quote": "достаточно быстро"
+        }
+      ]
+    },
+    {
+      "id": "E-03",
+      "source_id": "DOC-03",
+      "anchors": [
+        {
+          "line": 5,
+          "quote": "только с 09:00 до 18:00"
+        }
+      ]
+    },
+    {
+      "id": "E-04",
+      "source_id": "DOC-04",
+      "anchors": [
+        {
+          "line": 6,
+          "quote": "доступна круглосуточно"
+        }
+      ]
+    },
+    {
+      "id": "E-05",
+      "source_id": "DOC-05",
+      "anchors": [
+        {
+          "line": 7,
+          "quote": "ссылка на справку"
+        }
+      ]
+    },
+    {
+      "id": "E-06",
+      "source_id": "DOC-06",
+      "anchors": [
+        {
+          "line": 8,
+          "quote": "ссылка на справку"
+        }
+      ]
+    }
+  ],
+  "defect_annotation_scope": "deliberately injected defects only; other defects may remain",
+  "requirement_annotation_scope": "enumerated explicit obligations in the synthetic source; paraphrases require review"
+}

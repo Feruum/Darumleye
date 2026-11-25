@@ -1,0 +1,145 @@
+{
+  "kind": "hypothetical_business_value_scenario_not_measurements",
+  "as_of": "2026-11-26",
+  "currency": "KZT",
+  "observed": {
+    "report_sha256": "33cfaaa9ad50345bf7b7f41dcea3594ecbd4d3b240b938bc92b19a10a799e00e",
+    "source_sha256": "e7dae55e5453a250d93e335f5ff9c7f775f4457ccddd333f4a67e47b20d74381",
+    "requirements": 59,
+    "individual_checks": 531,
+    "set_checks": 6,
+    "findings": 28,
+    "findings_with_verified_citations": 28,
+    "clarification_questions": 41,
+    "readiness_checklist_items": 15,
+    "structural_checks_passed": 24,
+    "structural_checks_total": 24,
+    "generation_attempt_seconds": 821,
+    "generation_interattempt_gaps_included": false,
+    "manual_active_minutes": null,
+    "assisted_analyst_active_minutes": null,
+    "actual_provider_cost": null,
+    "actual_tokens": null,
+    "run_date": "2026-11-25"
+  },
+  "public_price_proxy": {
+    "model": "gpt-6.1-terra",
+    "standard_input_usd_per_million": 1,
+    "standard_output_usd_per_million": 5,
+    "source_url": "https://developers.openai.com/api/docs/models/gpt-6.1-terra",
+    "note": "Comparable public direct API tariff only; not actual gateway or Drex charges."
+  },
+  "public_luna_tariff_reference": {
+    "model": "gpt-6-luna",
+    "standard_input_usd_per_million": 0.1,
+    "standard_output_usd_per_million": 0.5,
+    "source_url": "https://developers.openai.com/api/docs/models/gpt-6-luna"
+  },
+  "fx": {
+    "kzt_per_usd": 458.28,
+    "rate_date": "2026-11-25",
+    "source_url": "https://nationalbank.kz/ru/exchangerates/ezhednevnye-oficialnye-rynochnye-kursy-valyut",
+    "note": "Official daily table snapshot for stated date; date selector required on revisit."
+  },
+  "wage_sources": {
+    "national_hourly": {
+      "kzt": 2508,
+      "source_url": "https://stat.gov.kz/ru/industries/laborand-income/stat-wags/publications/352971/"
+    },
+    "information_communications_monthly": {
+      "kzt": 851076,
+      "source_url": "https://stat.gov.kz/ru/industries/labor-and-income/stat-wags/publications/514625/"
+    },
+    "finance_insurance_monthly": {
+      "kzt": 1107576,
+      "source_url": "https://stat.gov.kz/ru/industries/labor-and-income/stat-wags/publications/514625/"
+    }
+  },
+  "assumed_hours_per_month": 160,
+  "assumptions": {
+    "same_quality_acceptance_required": true,
+    "analyst_role_rates_not_measured": true,
+    "generation_time_added_serially_without_other_pauses": true,
+    "token_counts_are_budget_guesses": true,
+    "exclude_unmeasured_drex_infrastructure_and_setup_from_per_document_result": true
+  },
+  "scenarios": [
+    {
+      "name": "lower_effect",
+      "assumed_manual_active_minutes": 150,
+      "assumed_assisted_active_minutes": 110,
+      "wage_kzt_per_hour": 2508.0,
+      "assumed_input_tokens": 250000,
+      "assumed_output_tokens": 120000,
+      "derived_active_minutes_saved": 40,
+      "derived_assisted_elapsed_scenario_seconds": 7421,
+      "derived_manual_labor_kzt": 6270.0,
+      "derived_assisted_labor_kzt": 4598.0,
+      "derived_text_model_proxy_kzt": 389.538,
+      "derived_capacity_value_before_other_costs_kzt": 1282.462
+    },
+    {
+      "name": "base",
+      "assumed_manual_active_minutes": 240,
+      "assumed_assisted_active_minutes": 90,
+      "wage_kzt_per_hour": 5319.225,
+      "assumed_input_tokens": 140000,
+      "assumed_output_tokens": 70000,
+      "derived_active_minutes_saved": 150,
+      "derived_assisted_elapsed_scenario_seconds": 6221,
+      "derived_manual_labor_kzt": 21276.9,
+      "derived_assisted_labor_kzt": 7978.8375,
+      "derived_text_model_proxy_kzt": 224.5572,
+      "derived_capacity_value_before_other_costs_kzt": 13073.5053
+    },
+    {
+      "name": "upper_effect",
+      "assumed_manual_active_minutes": 360,
+      "assumed_assisted_active_minutes": 75,
+      "wage_kzt_per_hour": 6922.35,
+      "assumed_input_tokens": 80000,
+      "assumed_output_tokens": 45000,
+      "derived_active_minutes_saved": 285,
+      "derived_assisted_elapsed_scenario_seconds": 5321,
+      "derived_manual_labor_kzt": 41534.1,
+      "derived_assisted_labor_kzt": 8652.9375,
+      "derived_text_model_proxy_kzt": 139.7754,
+      "derived_capacity_value_before_other_costs_kzt": 32741.3871
+    }
+  ],
+  "illustrative_monthly_base": {
+    "assumed_documents": 30,
+    "assumed_other_cost_budget_kzt": 100000,
+    "derived_freed_analyst_hours": 75.0,
+    "derived_gross_capacity_value_kzt": 398941.875,
+    "derived_text_model_proxy_kzt": 6736.716,
+    "derived_capacity_value_after_budget_kzt": 292205.159,
+    "derived_scenario_operating_roi_percent": 273.76255327173453,
+    "note": "Conditional resource-value scenario, not observed financial ROI; excludes unmeasured initial implementation."
+  },
+  "monthly_throughput_scenarios": [
+    {
+      "assumed_documents_per_month": 30,
+      "derived_manual_analyst_hours": 120,
+      "derived_assisted_analyst_hours": 45.0,
+      "derived_generation_hours_separate": 6.841666666666667,
+      "derived_freed_analyst_hours": 75.0,
+      "derived_fte_equivalent": 0.46875,
+      "derived_gross_capacity_value_kzt": 398941.875,
+      "derived_text_model_proxy_kzt": 6736.716,
+      "derived_capacity_value_before_other_costs_kzt": 392205.159
+    },
+    {
+      "assumed_documents_per_month": 100,
+      "derived_manual_analyst_hours": 400,
+      "derived_assisted_analyst_hours": 150.0,
+      "derived_generation_hours_separate": 22.805555555555557,
+      "derived_freed_analyst_hours": 250.0,
+      "derived_fte_equivalent": 1.5625,
+      "derived_gross_capacity_value_kzt": 1329806.25,
+      "derived_text_model_proxy_kzt": 22455.72,
+      "derived_capacity_value_before_other_costs_kzt": 1307350.53
+    }
+  ],
+  "timezone": "Asia/Almaty"
+}

@@ -1,0 +1,50 @@
+{
+  "source": "revised.md",
+  "description": "Synthetic control: the four injected defects in defective.md have been addressed with fictional analyst-approved decisions. Other findings remain possible.",
+  "defects": [],
+  "comparison_group": "service-directory-v1",
+  "requirements": [
+    {
+      "id": "E-01",
+      "source_id": "DOC-01",
+      "anchors": [
+        {
+          "line": 3,
+          "quote": "название каждой услуги и ссылку"
+        }
+      ]
+    },
+    {
+      "id": "E-02",
+      "source_id": "DOC-02",
+      "anchors": [
+        {
+          "line": 4,
+          "quote": "в течение пяти минут"
+        }
+      ]
+    },
+    {
+      "id": "E-03",
+      "source_id": "DOC-03",
+      "anchors": [
+        {
+          "line": 5,
+          "quote": "доступна круглосуточно"
+        }
+      ]
+    },
+    {
+      "id": "E-05",
+      "source_id": "DOC-05",
+      "anchors": [
+        {
+          "line": 6,
+          "quote": "ссылка на справку"
+        }
+      ]
+    }
+  ],
+  "defect_annotation_scope": "deliberately injected defects only; other defects may remain",
+  "requirement_annotation_scope": "enumerated explicit obligations in the synthetic source; paraphrases require review"
+}
