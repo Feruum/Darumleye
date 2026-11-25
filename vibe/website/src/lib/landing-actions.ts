@@ -1,8 +1,3 @@
-export const TEMPLATE_ACTION = {
-  href: 'https://github.com/di-sukharev/vibe/tree/mobile',
-  label: 'Открыть шаблон на GitHub',
-} as const
-
 /**
  * `PUBLIC_WEBAPP_URL` is build-time configuration read by the React application. The unified
  * release always sets it to the web app's `https://` origin, and a local or webapp-less build
@@ -33,10 +28,21 @@ function isAbsoluteHttpUrl(value: string) {
   }
 }
 
-export function getSecondaryAction(publicWebappUrl?: string) {
+export function getWorkspaceActions(publicWebappUrl?: string) {
   const webappUrl = resolvePublicWebappUrl(publicWebappUrl)
+  if (!webappUrl) return {
+    primary: { href: '#process', label: 'Как это работает' },
+    login: null,
+  }
 
-  return webappUrl
-    ? { href: webappUrl, label: 'Открыть веб-приложение' }
-    : { href: '#process', label: 'Как начать: 3 шага' }
+  function authUrl(path: '/login' | '/signup') {
+    const url = new URL(path, webappUrl)
+    url.searchParams.set('returnTo', '/app/assistant')
+    return url.toString()
+  }
+
+  return {
+    primary: { href: authUrl('/signup'), label: 'Начать проверку' },
+    login: { href: authUrl('/login'), label: 'Войти' },
+  }
 }

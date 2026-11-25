@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { getSecondaryAction, resolvePublicWebappUrl } from '../src/lib/landing-actions'
+import { getWorkspaceActions, resolvePublicWebappUrl } from '../src/lib/landing-actions'
 
 /**
  * The landing page's copy, section list and link counts are deliberately untested.
@@ -37,18 +37,17 @@ test('a PUBLIC_WEBAPP_URL that is not an absolute http(s) URL fails with an erro
   }
 })
 
-test('the secondary action falls back to the local next step until a webapp URL exists', () => {
-  assert.deepEqual(getSecondaryAction(), {
-    href: '#process',
-    label: 'Как начать: 3 шага',
-  })
-  assert.deepEqual(getSecondaryAction('   '), {
-    href: '#process',
-    label: 'Как начать: 3 шага',
-  })
-  assert.deepEqual(getSecondaryAction('  https://app.example.com  '), {
-    href: 'https://app.example.com',
-    label: 'Открыть веб-приложение',
-  })
-  assert.throws(() => getSecondaryAction('app.example.com'), /PUBLIC_WEBAPP_URL/)
+test('the landing actions link to existing authentication routes with a return path', () => {
+  const actions = getWorkspaceActions('  https://app.example.com  ')
+  assert.equal(actions.primary.href, 'https://app.example.com/signup?returnTo=%2Fapp%2Fassistant')
+  assert.equal(actions.login?.href, 'https://app.example.com/login?returnTo=%2Fapp%2Fassistant')
+  assert.throws(() => getWorkspaceActions('app.example.com'), /PUBLIC_WEBAPP_URL/)
+})
+
+test('a standalone landing keeps a working local anchor instead of a broken app link', () => {
+  for (const value of [undefined, '', '   ']) {
+    const actions = getWorkspaceActions(value)
+    assert.equal(actions.primary.href, '#process')
+    assert.equal(actions.login, null)
+  }
 })

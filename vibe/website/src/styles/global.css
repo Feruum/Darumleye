@@ -52,10 +52,7 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* Monochrome dark theme: the palette carries no hue, so hierarchy is expressed
-   through lightness, hairline borders and white glow instead of color.
-   `:root` and `.dark` are identical — the site has a single theme, and the
-   `.dark` class on <html> keeps shadcn `dark:` variants resolving correctly. */
+/* The legacy dark component theme remains available to the component catalog. */
 :root,
 .dark {
     --brand: oklch(1 0 0);
@@ -113,6 +110,45 @@
     --arc-shadow-resting: 0 1px 2px oklch(0 0 0 / 18%);
     --arc-shadow-raised: 0 8px 22px oklch(0 0 0 / 22%);
     --arc-shadow-floating: 0 22px 55px oklch(0 0 0 / 34%);
+}
+
+/* Public Spec Review theme. The landing uses the same violet accent and neutral
+   surfaces as the authenticated application, without altering the Arc primitives. */
+:root:not(.dark) {
+    --brand: #7938e8;
+    --brand-foreground: #fff;
+    --background: #f5f4f2;
+    --foreground: #211f25;
+    --card: #fff;
+    --card-foreground: #211f25;
+    --popover: #fff;
+    --popover-foreground: #211f25;
+    --primary: #7938e8;
+    --primary-foreground: #fff;
+    --secondary: #f1eafd;
+    --secondary-foreground: #341a59;
+    --muted: #f0eeec;
+    --muted-foreground: #625e68;
+    --accent: #f1eafd;
+    --accent-foreground: #341a59;
+    --destructive: #b42318;
+    --border: #dfdce3;
+    --input: #dfdce3;
+    --ring: #7938e8;
+    --sidebar: #341a59;
+    --sidebar-foreground: #fff;
+    --sidebar-primary: #fff;
+    --sidebar-primary-foreground: #341a59;
+    --sidebar-accent: #59317f;
+    --sidebar-accent-foreground: #fff;
+    --sidebar-border: #59317f;
+    --sidebar-ring: #7938e8;
+    --arc-text-muted: #625e68;
+    --arc-border-subtle: #f0eeec;
+    --arc-border-strong: #c8c2ce;
+    --arc-shadow-resting: 0 1px 2px rgb(52 26 89 / 5%);
+    --arc-shadow-raised: 0 8px 24px rgb(52 26 89 / 8%);
+    --arc-shadow-floating: 0 22px 55px rgb(52 26 89 / 12%);
 }
 
 @layer base {

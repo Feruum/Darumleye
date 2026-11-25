@@ -1,16 +1,14 @@
-# Public React website
+# Public Spec Review website
 
-The public site uses React 19, Vite 8, Tailwind CSS 4, and official copied MIT **Arc Free** Button/ButtonLink, Card, Badge, Accordion, and DropdownMenu. Motion 14.3.0 supplies their animations. The existing shadcn/Radix Separator is the standalone fallback. Keep [source provenance and MIT notices](src/components/arc/PROVENANCE.md). Astro has been removed. The signed-in workspace remains a separate React/Vite application in `webapp/`.
+The public site presents Spec Review, an AI-based requirements quality checker for the BCC Hub × MNU FinTech Hackathon. It is a concise Russian-language product introduction with an illustrative report, a four-stage workflow, quality criteria and authentication links. The report example is explicitly illustrative and does not claim real analysis results. Its violet and neutral palette matches the separate authenticated workspace in `webapp/`.
+
+The website uses React 19, Vite 8, Tailwind CSS 4 and copied MIT **Arc Free** controls. Keep their [source provenance and MIT notices](src/components/arc/PROVENANCE.md). The public product surface uses `src/styles/spec-review.css`; the existing component catalog and its themes remain separate. There is no 3D scene in the active landing page.
 
 ## Rendering and behavior
 
-The single landing page is composed by `src/App.tsx` and React sections under `src/components/landing`. The current theme, content, navigation, native mobile menu, FAQ disclosures, and calls to action are preserved.
+The landing page is composed by `src/App.tsx`. `scripts/build.mjs` uses Vite's SSR build API and React DOM `renderToString` to generate complete static HTML. A client build supplies hashed assets. Temporary server-rendering output is removed after the build. The published output is `website/dist`, including pre-rendered `index.html` and immutable `assets/`; it needs no production Node server.
 
-`scripts/build.mjs` uses Vite's SSR build API and React DOM `renderToString` to generate complete static HTML. A client build then supplies hashed assets. Temporary server-rendering output is removed after the build. The published output is `website/dist`, including pre-rendered `index.html` and immutable `assets/`; it needs no production Node server.
-
-The development Vite middleware renders the same application and metadata into HTML. The client entry hydrates it when the browser is idle, with a 2500 ms deadline. Header and FAQ disclosures use native HTML before hydration or without JavaScript. Their `components/interface/` adapters enhance to Arc afterward, preserving open state, focus, real anchors, and multiple open FAQ answers. Tokens are namespaced and mapped to the existing site theme without importing a global reset. See [design.md](../design.md) and the [fallback report](../docs/ARC_MIGRATION.md).
-
-`HeroScene` keeps its complete static visual fallback. Its Three.js canvas is dynamically loaded only for desktop viewports that permit motion and provide a WebGL2 context. Mobile, reduced-motion, and WebGL-disabled browsers retain the fallback; loading errors do not remove it.
+The development Vite middleware renders the same application and metadata into HTML. The client entry hydrates it when the browser is idle, with a 2500 ms deadline. Navigation anchors and authentication links work natively without JavaScript. The signed-in application performs document review and report generation; the public site does not upload documents or call AI providers.
 
 ## Commands
 
@@ -31,21 +29,19 @@ To preview production output, first build, then run `bun run --cwd website previ
 
 ## Public settings and metadata
 
-- `PUBLIC_WEBAPP_URL`: optional absolute HTTP(S) URL for the workspace action. If unset, that action links to the existing local getting-started section.
+- `PUBLIC_WEBAPP_URL`: optional absolute HTTP(S) origin for the authenticated workspace. When set, the public CTA links to `/signup?returnTo=%2Fapp%2Fassistant` and the login link to `/login?returnTo=%2Fapp%2Fassistant`. When unset, CTA links to the local process section and no login link is rendered.
 - `PUBLIC_WEBSITE_URL`: optional absolute HTTP(S) site URL for canonical and Open Graph URL tags.
 - Public settings are build-time values. Invalid configured URLs fail the build. Metadata is HTML-escaped before insertion.
 
-Title, description, Russian language, dark theme, favicon, Open Graph, and Twitter metadata remain in the initial HTML. Vite exposes only its standard public variables and the existing `PUBLIC_*` prefix. Keep all private keys out of public-prefixed variables.
+Title, description, Russian language, light theme, favicon, Open Graph, and Twitter metadata are in the initial HTML. Vite exposes only its standard public variables and the existing `PUBLIC_*` prefix. Keep all private keys out of public-prefixed variables.
 
 ## Checks and architecture
 
-The existing website tests cover public-link configuration, hero eligibility/loading, and Storybook inventory. Metadata tests cover escaping and URL validation. Build-contract checks verify pre-rendered content, hashed assets, lazy canvas separation, and exclusion of story-only CSS.
+The website tests cover authentication-link configuration, metadata escaping and URL validation, plus the legacy component catalog. The static build contract verifies pre-rendered content, native anchor targets, hashed assets, retired canvas exclusion and story-only CSS isolation.
 
-Arc migration verification on 2026-10-16 passed 7 production Chromium cases: 1440px, 390px, and 700px with JavaScript enabled/disabled, plus a WebGL-disabled desktop fallback. Navigation anchors, multiple FAQ panels, keyboard operation, reduced motion, absence of page/hydration errors, and screenshot review were checked. See [VERIFICATION.md](../docs/VERIFICATION.md).
+Keep account routes, permissions, checkout and private data in `webapp/` and `backend/`. This product landing does not add payments, public API data or runtime server rendering. See [WEB_SURFACES.md](../docs/WEB_SURFACES.md) and [ARCHITECTURE.md](../docs/ARCHITECTURE.md).
 
-Keep account routes, permissions, checkout, and private data in `webapp/` and `backend/`. This migration does not add payments, public API data, or runtime server rendering. See [WEB_SURFACES.md](../docs/WEB_SURFACES.md) and [ARCHITECTURE.md](../docs/ARCHITECTURE.md).
-
-Static release source retains the existing output directory and public environment names. Cloud deployment was not performed. Request-rendered pages or new routes require a separate recorded product need; this one-page static build does not imply a general SSR routing framework.
+Static release source retains the existing output directory and public environment names. Request-rendered pages or new routes require a separate recorded product need; this one-page static build does not imply a general SSR routing framework.
 
 ## References
 

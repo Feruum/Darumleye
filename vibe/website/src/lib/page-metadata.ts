@@ -1,6 +1,6 @@
-export const PAGE_TITLE = 'ЙЙ — шаблон для создания сайтов и приложений с ИИ'
+export const PAGE_TITLE = 'Spec Review — AI-проверка качества требований'
 export const PAGE_DESCRIPTION =
-  'Соберите лендинг, веб- или мобильное приложение с ИИ. Технологии, структура проекта, компоненты и проверки уже настроены.'
+  'Проверяйте технические требования из PDF, TXT и Markdown. AI-агент выявляет пробелы и противоречия и готовит отчёт с цитатами и рекомендациями.'
 
 export function renderPageHead({ title, description, publicWebsiteUrl }: {
   title: string
