@@ -19,11 +19,19 @@ The following env values come from the root `.env.example` and `docker-compose.y
 | `AGENT_API_KEY` | Internal shared key between Bun and FastAPI |
 | `AGENT_LLM_BASE_URL` | OpenAI-compatible chat API origin |
 | `AGENT_LLM_API_KEY` | Chat API credential |
-| `AGENT_LLM_MODEL` | Chat model name |
+| `AGENT_LLM_MODEL` | Chat model name; examples use `gpt-6-luna` through WikiVibe |
+| `AGENT_LLM_TIMEOUT_SECONDS` / `AGENT_LLM_MAX_RETRIES` | Per-call timeout and retry policy; defaults 45 seconds / 2 retries |
+| `AGENT_SPEC_REVIEW_TIMEOUT_SECONDS` | Total time limit for a specification review; default `230`, allowed range `30..240` |
+| `AGENT_SPEC_REVIEW_CONCURRENCY` | Primary parallel calls, default 3, range 1..3; normative comparison is independent |
+| `AGENT_SPEC_REVIEW_USE_NACE` | Independent Drex support checks of core and normative findings, plus reference candidate reranking; defaults to `false` |
 | `AGENT_EMBEDDING_BASE_URL` | Optional embedding API origin; defaults to chat URL |
 | `AGENT_EMBEDDING_API_KEY` | Optional embedding API credential; defaults to chat key |
 | `AGENT_EMBEDDING_MODEL` | Embedding model name used when indexing/searching |
 | `AGENT_USE_RERANKER` | Optional reranking; defaults to `false` |
+| `AGENT_RERANK_PROVIDER` | `generic` (default) or `nace` |
+| `NACE_API_KEY` | Separate Nace API credential, required only for Nace reranking |
+| `AGENT_NACE_MODEL` | Nace decision model, defaults to `drex-latest` |
+| `AGENT_NACE_TIMEOUT_SECONDS` | Nace HTTP timeout, defaults to `8`, allowed range `1..20` |
 | `AGENT_USE_HYBRID_SEARCH` | Owner-filtered BM25 keyword + dense retrieval; defaults to `true` |
 | `AGENT_RETRIEVAL_LEXICAL_MAX_CHUNKS` | Maximum owner corpus for local lexical ranking; defaults to `2000`, allowed range `1..10000` |
 
@@ -42,6 +50,7 @@ The web application talks to the Bun proxy, not these internal routes:
 | `POST /api/agent/documents` | `POST /admin/ingest` | Upload a PDF/TXT file, up to 25 MiB |
 | `GET /api/agent/documents/:id` | `GET /admin/documents/:id` | Read indexing status |
 | `DELETE /api/agent/documents/:id` | `DELETE /admin/documents/:id` | Remove one owned document |
+| `POST /api/agent/spec-reviews` | `POST /api/v1/spec-reviews` | Requirements review (PDF, TXT, MD, DOCX, XLSX, CSV, JPG/JPEG, PNG up to 25 MiB; local OCR for scans and embedded Word photos) |
 | `POST /api/agent/chat/stream` | `POST /api/v1/chat/stream` | Stream chat events as SSE |
 | `GET /api/agent/memories` | `GET /api/v1/memories` | List the user's explicit private notes |
 | `POST /api/agent/memories` | `POST /api/v1/memories` | Save `{ "content": "..." }`; owner comes from Bun |
@@ -49,9 +58,40 @@ The web application talks to the Bun proxy, not these internal routes:
 
 The streaming route emits module/thread information, token chunks, tool status, sources, and errors. Health endpoints are available at `/health/live` and `/health/ready` for local process checks.
 
+## Standalone specification review
+
+New competition reviews default to the `multi_agent` LangGraph workflow on GPT-6 Luna in the example configuration, with independent experts, paired evidence validators, consolidation and Finalizer. The `legacy` baseline remains explicitly selectable. Both execute extraction, individual quality checks, and set-wide review. The reviewer verifies exact quotes against original source positions, assigns stable report IDs, computes counts and readiness, and renders a Russian Markdown report; multi-agent reports also preserve an Evidence Graph. The selected default is a product decision, not proof of universal improvement from preliminary comparisons. The criteria are inspired by ISO/IEC/IEEE 29148; the report is not a certification. No result is silently limited to the top ten findings. An incomplete or invalid mandatory result fails the run. PDF pages without readable embedded text, standalone JPG/PNG photos, and embedded Word pictures use local OCR. A damaged page does not discard the remaining readable pages; when the text parser cannot open a file, an independent Poppler page-count probe can enable full-page OCR of an unencrypted PDF. Unreadable pages or image blocks prevent a ready verdict, and evidence cannot span missing content.
+
+From the service directory, install dependencies and configure the chat API in `vibe/.env` (starting from `vibe/.env.example`). Run the actual source file through the agent:
+
+```bash
+uv sync --frozen
+uv run python -m agent.spec_review_cli --input /path/to/requirements.md --output /path/to/report.md --env-file ../../.env
+```
+
+Use `--review-mode legacy` for the original baseline; omitting the flag selects `multi_agent` for a new review. Specify the mode explicitly during benchmarking. Use `.json` for the output extension to save the full structured response including the Markdown report. The CLI uses the same pipeline as the web application, but does not require Docker, PostgreSQL, Chroma, login, or an embedding model. It returns a nonzero exit code on failure and writes the report only after completing the mandatory stages. Source files are never overwritten. Set a model that supports JSON-mode chat completion and sufficient context for the document. The source contents are sent to the configured model provider.
+
+Set `AGENT_SPEC_REVIEW_USE_NACE=true` with `NACE_API_KEY` to independently estimate whether the original text supports each final finding. The assessment is separate from the primary verdict and remains optional. If the decision provider is unavailable or the complete assessment cannot finish within the limits, the primary report is still written. The output includes the actual decision model and named probabilities, or an explicit unavailable/not-applicable status. See [SPEC_REVIEW.md](../../docs/SPEC_REVIEW.md#independent-decision-review-with-nace-drex).
+
+Review limits: 25 MiB, 100,000 extracted characters, 150 PDF pages or DOCX images, 500 extracted requirements. JPG/PNG images are limited to 30 megapixels and 16,000 pixels per edge. Extraction scans source units; the legacy individual-review pipeline uses batches of six, and the multi-agent experts use their own bounded batches. Large documents use bounded original context, section checks and candidate cross-section comparisons; unresolved global relations remain uncertain. PDF OCR uses local Poppler and Tesseract (`rus`, `kaz`, `eng`) installed in the agent image; standalone CLI requires the same binaries and language packs. Rebuild the agent and apply migrations through `20261125_0007` for Office support and durable web review jobs. Files exceeding a limit stop with an error instead of returning a partial report.
+
+Verify the pipeline and CLI with the controlled local provider tests:
+
+```bash
+uv run pytest tests/test_spec_review.py
+```
+
+These tests verify behavior and report structure, not the quality of a real model on the competition document.
+
+## Durable web review jobs
+
+The asynchronous primary web review uses PostgreSQL-owned admission, input, mode, status and renewable worker leases. Accepted source/reference bytes survive restarts. Validated stage checkpoints are saved under `AGENT_UPLOAD_DIR/spec-review-checkpoints` on `agent_local_data`. Both durable stores must be retained. A graceful shutdown requeues work; an abrupt stop permits another worker to claim after lease expiration. The same job UUID and selected mode are retained, the final archive is committed atomically, and temporary input/checkpoints are removed after terminal processing. Re-review uses the archived report's mode; historical reports without one repeat in `legacy`. See [SPEC_REVIEW.md](../../docs/SPEC_REVIEW.md#web-workspace).
+
 ## Retrieval and explicit memory
 
-The RAG module merges Chroma dense retrieval with BM25L keyword matches through reciprocal rank fusion. Both paths use the authenticated owner filter. Existing vectors need no reindex. If the owner has more chunks than the configured lexical bound, the query uses dense-only results and logs `lexical_corpus_limit`; it does not rank a partial corpus. Optional reranking remains independent.
+The RAG module merges Chroma dense retrieval with BM25L keyword matches through reciprocal rank fusion. Both paths use the authenticated owner filter. Existing vectors need no reindex. If the owner has more chunks than the configured lexical bound, the query uses dense-only results and logs `lexical_corpus_limit`; it does not rank a partial corpus. Optional reranking remains independent: choose `generic` for the existing `/rerank` provider, or `nace` for the Nace Drex decision model.
+
+To enable Nace, obtain an API key in the [Nace console](https://console.nace.ai/dashboard), then set `NACE_API_KEY`, `AGENT_RERANK_PROVIDER=nace`, `AGENT_USE_RERANKER=true` and `AGENT_NACE_MODEL=drex-latest` in `vibe/.env`. `drex-max-finance` may be selected if it is available to the account. The model receives the query and candidate passage text only, not local document metadata. It ranks existing candidates by their relevance probabilities and preserves the source objects. On a missing key, provider error, timeout or incomplete response it returns the original retrieval order. Recreate the agent with `docker compose up -d --build agent` from `vibe/`. See [NACE_RAG.md](../../docs/NACE_RAG.md).
 
 The **Your memory** card in the workspace saves explicit user notes in PostgreSQL. Notes survive restarts and can be deleted by their owner. The agent has a read-only `search_user_memory` tool; it cannot save/delete notes or copy uploaded content into memory. Notes supply context/preferences and are not document sources. Saving and managing notes needs no AI provider; using them in generated answers requires chat configuration.
 

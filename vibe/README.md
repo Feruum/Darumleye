@@ -1,4 +1,4 @@
-# TemplateHack — Hackathon Starter
+# Spec Review — application workspace
 
 <p align="center">
   <img src="docs/assets/vibe_tmpl_schema.png" alt="Vibe Coding Template architecture diagram" width="100%">
@@ -8,9 +8,11 @@ A local-first starter for hackathon projects. React/Vite serves the pre-rendered
 
 [AGENTS.md](AGENTS.md) defines the development rules. The active launch path is local. Cloud infrastructure and the mobile branch are not part of this starter's first run.
 
-This application is stored under `vibe/` in [Feruum/TemplateHack](https://github.com/Feruum/TemplateHack). Run the commands below from `vibe/`. Git is configured in its parent workspace. The canonical RAG agent lives in `services/agent`; the outer original reference directory has been retired. See [RAG consolidation](docs/RAG_CONSOLIDATION.md) for source reconciliation and recovery from Git history.
+This application is stored under `vibe/` in [Feruum/Darumleye](https://github.com/Feruum/Darumleye). Run the commands below from `vibe/`. Git is configured in its parent workspace. The canonical RAG agent lives in `services/agent`; the outer original reference directory has been retired. See [RAG consolidation](docs/RAG_CONSOLIDATION.md) for source reconciliation and recovery from the upstream TemplateHack history.
 
 The agent combines owner-filtered vector and keyword retrieval, optional reranking, streaming citations, and PostgreSQL conversation state. The workspace's **Your memory** card lets each user save/delete private preferences. The model can read those notes but cannot write or delete them. Existing running agent containers need a rebuild to load the new Python routes; the [guide](docs/RAG_CONSOLIDATION.md#run-and-verify) explains it.
+
+Optional [Nace Drex reranking](docs/NACE_RAG.md) assesses the relevance of the private RAG shortlist. It uses a separate API key and does not replace the chat LLM or the full-document specification-review pipeline.
 
 ## Interface libraries
 
@@ -18,11 +20,28 @@ The active public site and signed-in workspace use **Arc Free** copied MIT sourc
 
 Arc migration verification on 2026-10-16 passed: full `bun run check`, final **97 webapp tests**, types/lint/builds, **18 distinct workspace browser scenarios across the full run and targeted reruns**, and **7 production-site cases**. The mobile keyboard/focus regression passed three repetitions at both 390px and 700px. See [VERIFICATION.md](docs/VERIFICATION.md) for boundaries and remaining provider configuration.
 
-The existing `/app/assistant` screen uses **assistant-ui 0.15.29** LocalRuntime and primitives for the chat lifecycle. Selected **Arc Free** EmptyState/Badge source and **Motion 14.3.0** provide empty states and status badges. Requests still use the authenticated Bun SSE proxy; provider keys remain server-side. No assistant-ui Cloud account is required.
+The separate `/app/chat` screen uses **assistant-ui 0.15.29** LocalRuntime and primitives for the chat lifecycle. Selected **Arc Free** controls and badges surround the chat. **Motion 14.3.0** and Blobatar support status animation; assistant-ui owns suggestions, copy, and message actions. Requests still use the authenticated Bun SSE proxy; provider keys remain server-side. No assistant-ui Cloud account is required.
 
 Earlier RAG integration checks on 2026-10-16 passed: **91 webapp tests and 4 Chromium scenarios**, including mobile, sources/tools, uploads, explicit note save/reload/delete, cancellation, and HTTP errors. Types and production builds passed. Session-scoped agent caches clear on sign-out and account replacement.
 
 The [design guide](design.md) records the frontend libraries and visual conventions. The [chat UI guide](docs/CHAT_UI.md) explains component ownership, keyboard/cancellation behavior, citations, errors, checks, and remaining AI configuration. Preserve the [Arc MIT license and source record](webapp/src/components/arc/README.md).
+
+## FinTech specification review
+
+In the signed-in workspace, open **Проверка ТЗ**, select a PDF, UTF-8 TXT, Markdown, DOCX, XLSX, CSV, JPG/JPEG or PNG file, and click **Проверить ТЗ**. New reviews default to `multi_agent`; select `legacy` explicitly for the original baseline. The pipeline registers a run ID and document SHA-256, extracts requirements with source identifiers, checks duplicates and reused IDs in code, assesses nine individual criteria, six set criteria and the readiness checklist, validates evidence, and produces a verdict and priorities. The default multi-agent workflow adds independent experts, paired validators, Finalizer and an interactive Evidence Graph. Re-review preserves the archived report's mode; historical reports without mode metadata repeat in `legacy`. The workspace shows the requirement index, checks, findings and source quotations. Use **Скачать отчёт** to save the generated Markdown file.
+
+Set `AGENT_LLM_BASE_URL`, `AGENT_LLM_API_KEY`, and `AGENT_LLM_MODEL` in `vibe/.env`. The example configuration selects GPT-6 Luna (`gpt-6-luna`) through WikiVibe. Multi-agent extraction and experts use low reasoning effort, while paired validators, Finalizer and targeted re-review use medium. The selected default is a product decision; preliminary comparative evidence does not establish universal superiority in review quality, time or cost. Alternative providers must support the required JSON output and have enough context for the extracted document and report. Review does not require an embedding model. If the agent container is already running, recreate it with `docker compose up -d --build agent` from `vibe/`.
+
+The primary specification can contain up to 25 MiB, 100,000 extracted characters, 150 PDF pages, and 500 extracted requirements. The default AI review deadline is 230 seconds for small documents and 900 seconds for large ones. The agent image includes Poppler and Tesseract for local OCR of scanned PDF pages, photos and embedded Office images in Russian, Kazakh and English. The primary OCR budget is 180 seconds. The report identifies recognized and unreadable pages or image units; unreadable units prevent a ready verdict, and a fully unreadable document is rejected. Verify OCR quotations against the original image. The configured model receives the extracted text across bounded stages. Use files that you are authorized to send to the model provider.
+
+On successful web review, the service archives the extracted primary specification and generated report in owner-scoped PostgreSQL for the separate `/app/chat` workspace. The report is not added to personal notes or the general upload index. Explicitly selected reference documents are cached in a separate owner-scoped Chroma index. References retain separate limits: up to eight files, 5 MiB and 24,000 characters/60 PDF pages each, and 10 MiB and 48,000 characters total.
+
+The Russian report includes a run passport, requirement-to-source table, individual and set checks, a 15-point readiness checklist, clarification questions, statistics, severity-ranked findings with checked quotes, recommendations, and readiness verdict. A quote must appear within the cited extracted source units. Missing requirements can be reported without a quote if no corresponding text exists. The report is a review aid for the specification author. See [SPEC_REVIEW.md](docs/SPEC_REVIEW.md) for the standalone command, design, and limits, and [QUALITY_EVALUATION.md](docs/QUALITY_EVALUATION.md) for the paired benchmarks and evidence limits.
+
+Optional independent Drex verification uses `AGENT_SPEC_REVIEW_USE_NACE=true` and a server-side `NACE_API_KEY`. It checks every core finding and separately audits RF-* observations against both originals, then adds model support probabilities to the report and web inspector. The primary verdict and findings stay intact; disagreements are highlighted for review. Selected regulations use Chroma-based vector/keyword retrieval and optional Drex reranking, with explicit retrieval coverage and two verified citations per observation. Local lexical features work without a separate embedding API; configured models enable learned embeddings. Reference observations remain separate from the official document-only verdict.
+
+Try the [synthetic payment specification](docs/examples/fintech-payment-spec.txt). It leaves the retry behavior after a timeout undefined and specifies two different daily limits.
+
 
 ## Datathon data workflow
 
@@ -72,7 +91,7 @@ Before work on data, carts, orders, or payments, read [WEB_SURFACES.md](docs/WEB
 
 ## Quick start
 
-Requirements: Bun 1.4+, Node.js 22.12+, and Docker Desktop with the engine running. An OpenAI-compatible chat and embedding provider is required for AI answers and document indexing. Direct Python development requires Python 3.12+ and `uv`.
+Requirements: Bun 1.4+, Node.js 22.13+ LTS, and Docker Desktop with the engine running. An OpenAI-compatible chat and embedding provider is required for AI answers and document indexing. Direct Python development requires Python 3.12+ and `uv`.
 
 From PowerShell in `vibe/`:
 
@@ -98,7 +117,7 @@ Open the local apps here:
 - Bun API: <http://localhost:3000>
 - Internal agent service: <http://localhost:8001> (called by Bun; the browser uses `/api/agent`)
 
-Register an account from the workspace. Upload a PDF or TXT file up to 25 MiB, wait for indexing, then ask a question. The agent module is selected automatically by default; the selector also supports explicit module choice.
+Register an account, complete a verification in “Проверка ТЗ”, then open “Чат по проверкам” and select the completed review. The original file text and report are already available; no extra upload is required.
 
 Use `bun run build` to build the workspaces with dependency ordering and a local `.turbo` cache. Remote caching is disabled. See [COMMANDS.md](docs/COMMANDS.md#turborepo) for filtered tasks, cache controls, and standalone development commands.
 

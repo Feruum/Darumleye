@@ -1,0 +1,35 @@
+@startuml SpecReviewChatSequence
+Title Чат по отчёту — Sequence diagram
+skinparam shadowing false
+actor "Аналитик" as User
+boundary "Review Chat / assistant-ui" as UI
+control "Bun API" as API
+control "FastAPI" as Agent
+control "LangGraph review_chat" as Graph
+participant "Review retrieval" as Search
+database "PostgreSQL agent" as DB
+participant "LLM" as Model
+User -> UI : Выбирает завершённую проверку и задаёт вопрос
+UI -> API : POST /api/agent/chat/stream\nmodule_id=review_chat, review_id, question
+API -> Agent : Доверенная личность, SSE
+Agent -> DB : Verify review and thread owner
+alt Доступ разрешён
+  Agent -> Graph : astream(question, owner, review_id)
+  Graph -> Search : Серверный retrieval
+  Search -> DB : Загрузить источник + отчёт
+  DB --> Search : Архивная запись
+  Search -> Search : BM25L + цитаты\nкороткий документ целиком
+  Search --> Graph : Контекст и разрешённые источники
+  Graph -> Model : Question + evidence + history
+  Model --> Graph : JSON answer + citations
+  Graph -> Graph : Выбрать известные ID источников
+  Graph -> DB : LangGraph checkpoint
+  Graph --> Agent : Ответ / источники / статус инструмента
+  Agent --> API : SSE events
+  API --> UI : SSE events
+  UI --> User : Ответ с источниками
+else Нет доступа
+  Agent --> API : HTTP error
+  API --> UI : Ошибка
+end
+@enduml

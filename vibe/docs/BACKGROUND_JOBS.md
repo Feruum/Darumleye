@@ -49,6 +49,10 @@ docker compose logs --tail 100 agent
 docker compose logs --tail 100 chroma
 ```
 
+## Specification review jobs
+
+The agent API commits each accepted primary review to its PostgreSQL `agent_spec_review_jobs` table before responding. A separate agent dispatcher starts or resumes work on startup, with database-enforced capacity and renewable worker leases. PostgreSQL holds bounded temporary source/reference bytes and job metadata; the agent data volume holds validated model stage checkpoints. This path is separate from the Bun outbox and document-ingestion jobs. Preserve both volumes for recovery; graceful shutdown returns unfinished work to pending, and abrupt shutdown recovers after lease expiry. The active time allowance is carried across restarts. See [web workspace and migration](SPEC_REVIEW.md#web-workspace).
+
 ## Local operations
 
 Compose applies restart policies to infrastructure containers as defined in `docker-compose.yml`. App processes stop with `bun run dev`. Persistent data remains in Docker volumes until removed. Cloud timers, worker deployments, production alerts, Azure Service Bus, and Redis are outside the current setup. Design and verify those separately before enabling them.

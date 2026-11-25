@@ -1,0 +1,148 @@
+@startuml SpecReviewReportClasses
+Title Spec Review — Class diagram (модель отчёта)
+skinparam shadowing false
+hide empty methods
+class Specification {
+  filename: str
+  source: pdf | txt | md
+  units: list[str]
+  sha256: str?
+  + numbered_units()
+  + verify_quote(start, end, quote)
+}
+class ReviewReport {
+  filename: str
+  source: Source
+  unreadable_pages: list[int]
+  summary: str
+  report_markdown: str
+}
+class Passport {
+  document_title: str
+  run_at: str
+  model: str
+  agent_version: str
+  run_id: str?
+  document_sha256: str?
+}
+class Requirement {
+  id: R-ID
+  source_id: str?
+  text: str
+}
+class Evidence {
+  start: int
+  end: int
+  quote: str
+}
+class Check {
+  criterion: str
+  status: Status
+  comment: str
+}
+class SetCheck
+class Finding {
+  kind: FindingKind
+  severity: Severity
+  issue: str
+  recommendation: str
+  requirement_ids: list[str]
+}
+class Statistics {
+  requirements: int
+  violations: int
+  critical: int
+  passed: int
+  needs_revision: int
+}
+class Verdict {
+  status: ready | needs_revision | not_ready
+  reason: str
+  priorities: list[str]
+}
+class DecisionReview {
+  provider: nace
+  status: str
+  model: str
+  explanation: str
+}
+class FindingDecision {
+  id: D-ID
+  probability: float
+  status: str
+}
+class ReferenceReview {
+  status: str
+  explanation: str
+}
+class ReferenceSource {
+  id: S-ID
+  title: str
+  issuer: str
+  version: str
+  sha256: str
+  applicability: str
+}
+class ReferenceObservation {
+  id: RF-ID
+  source_id: str
+  status: str
+  issue: str
+  recommendation: str
+  requirement_ids: list[str]
+}
+class ReferenceEvidence {
+  start: int
+  end: int
+  quote: str
+}
+class ReferenceRetrieval {
+  mode: str
+  sources: list[ReferenceRetrievalSource]
+}
+class ReferenceDecisionReview
+class CompletedReview <<SQLAlchemy>> {
+  id: UUID-string
+  owner_id: str
+  filename: str
+  created_at: datetime
+  source_format: str
+  verdict: str
+  requirements: int
+  findings: int
+  source_units: JSON
+  report: JSON
+}
+Specification ..> ReviewReport : исходный текст
+ReviewReport *-- "1" Passport
+ReviewReport *-- "0..*" Requirement
+ReviewReport *-- "6" SetCheck
+ReviewReport *-- "0..*" Finding
+ReviewReport *-- "1" Statistics
+ReviewReport *-- "1" Verdict
+ReviewReport *-- "0..1" DecisionReview
+ReviewReport *-- "0..1" ReferenceReview
+Requirement *-- "1" Evidence
+Requirement *-- "9" Check
+SetCheck --|> Check
+SetCheck *-- "0..*" Evidence
+Finding *-- "0..*" Evidence
+Finding ..> Requirement : requirement_ids
+Evidence ..> Specification : exact quote
+DecisionReview *-- "0..*" FindingDecision
+FindingDecision ..> Finding : D-ID (порядковый)
+ReferenceReview *-- "0..*" ReferenceSource
+ReferenceReview *-- "0..*" ReferenceObservation
+ReferenceReview *-- "0..1" ReferenceRetrieval
+ReferenceReview *-- "0..1" ReferenceDecisionReview
+ReferenceObservation --> ReferenceSource : source_id
+ReferenceObservation ..> Requirement : requirement_ids
+ReferenceObservation *-- "1..*" ReferenceEvidence : specification_evidence
+ReferenceObservation *-- "1..*" ReferenceEvidence : reference_evidence
+CompletedReview ..> ReviewReport : serialized JSON
+CompletedReview ..> Specification : extracted source_units
+note bottom of CompletedReview
+  Владение определяется owner_id.
+  Нет cross-database FK к users.
+end note
+@enduml

@@ -4,7 +4,7 @@ The active project mode is local development. React/Vite serves the pre-rendered
 
 ## RAG chat interface libraries
 
-The `/app/assistant` feature composes assistant-ui LocalRuntime/primitives through `AgentThread.tsx`. Its feature-local `runtime.ts` adapter uses the existing authenticated transport and SSE contracts; it does not create another API client, execute browser tools, or use assistant-ui Cloud. TanStack Query retains document/module ownership. Selected Arc Free EmptyState/Badge source lives in `webapp/src/components/arc/`, with scoped aliases to existing theme tokens and its MIT license. See [CHAT_UI.md](CHAT_UI.md) for boundaries, behavior, and maintenance.
+The `/app/chat` feature composes assistant-ui LocalRuntime/primitives through `AgentThread.tsx`. Its feature-local `runtime.ts` adapter uses the existing authenticated transport and SSE contracts; it does not create another API client, execute browser tools, or use assistant-ui Cloud. TanStack Query owns the authenticated completed-review list and optional notes. Selected Arc Free EmptyState/Badge source lives in `webapp/src/components/arc/`, with scoped aliases to existing theme tokens and its MIT license. See [CHAT_UI.md](CHAT_UI.md) for boundaries, behavior, and maintenance.
 
 ## Interface ownership
 
@@ -54,6 +54,8 @@ Browser-facing routes:
 | `GET /api/agent/modules` | List enabled modules |
 | `GET /api/agent/documents` | List the current user's documents |
 | `POST /api/agent/documents` | Upload PDF/TXT multipart file, up to 25 MiB |
+| `POST /api/agent/spec-reviews` | Review PDF/TXT/MD, up to 5 MiB; return verified structured report and Markdown |
+| `POST /api/agent/spec-reviews/:reviewId/fix` | Propose a non-mutating correction or clarification for one finding in an owner-scoped archived review |
 | `GET /api/agent/documents/:documentId` | Read indexing status |
 | `DELETE /api/agent/documents/:documentId` | Delete a document and its vectors |
 | `POST /api/agent/chat/stream` | Stream chat; accepts optional `thread_id` and `module_id` |
@@ -75,6 +77,10 @@ The shared orchestrator builds the LangGraph workflow and selects a module throu
 An `AgentModule` definition owns its instructions, tools, and routing keywords. Add modules under `services/agent/src/agent/modules/` and register each one in `get_modules()`. A tool must not decide which user owns its data: the backend-trusted `user_id` is injected by the orchestrator. Return structured tool status and sources so the API can stream them over SSE.
 
 The first module, `rag`, accepts PDF and TXT files. It stores files in the agent's local storage, metadata and progress in the `agent` database, and embeddings/chunks in local Chroma. Dense and BM25 keyword retrieval use the same owner filter and merge through reciprocal rank fusion. Docker volumes preserve this data across local restarts.
+
+Specification review has two execution modes. New reviews default to `multi_agent` on GPT-6 Luna in the selected configuration; `legacy` remains explicitly selectable. Both modes use the review queue, validated stage checkpoints and the PostgreSQL archive. The multi-agent workflow adds independent experts, three paired validators, a finalizer and an Evidence Graph. Repeated reviews preserve the original report mode; historical reports lacking it repeat in `legacy`. This is a product default, not a claim of universal improvement from the preliminary comparison. The interactive chat uses a separate graph. See [Spec Review 2.0](MULTI_AGENT_REVIEW.ru.md).
+
+When the user selects references, an owner- and content-filtered Chroma collection caches numbered source passages. Per-requirement BM25/vector retrieval and optional Drex reranking feed a bounded comparison. Successful web reviews store their extracted source and validated report in PostgreSQL. The review-chat module retrieves passages from one owner-verified review. See [Spec Review](SPEC_REVIEW.md) and [Regulatory context](REGULATORY_CONTEXT.md).
 
 Personal notes use authenticated `/api/agent/memories` list/create/delete routes through Bun. Only explicit user actions write memory; the agent's `search_user_memory` tool is read-only and receives its owner from graph state. Notes are context/preferences and do not become document citation sources. See [RAG_CONSOLIDATION.md](RAG_CONSOLIDATION.md) for limits, source disposition, and image update instructions.
 

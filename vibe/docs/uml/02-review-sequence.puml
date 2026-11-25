@@ -1,0 +1,73 @@
+@startuml SpecReviewSequence
+Title Проверка ТЗ — Sequence diagram
+skinparam shadowing false
+actor "Аналитик" as User
+boundary "React Webapp" as UI
+control "Bun API" as API
+control "FastAPI" as Agent
+control "Review pipeline" as Pipeline
+participant "LLM" as LLM
+participant "Reference RAG" as RAG
+database "ChromaDB" as Index
+participant "Drex" as Drex
+database "PostgreSQL agent" as DB
+User -> UI : Выбирает ТЗ и регламенты (опц.)
+UI -> API : POST /api/agent/spec-reviews\nmultipart/form-data
+API -> API : Авторизация, проверка формы
+alt Запрос не принят
+  API --> UI : HTTP 4xx
+  UI --> User : Сообщение об ошибке
+else Запрос принят
+  API -> Agent : POST /api/v1/spec-reviews\nдоверенная личность
+  Agent -> Agent : Проверка файла, извлечение страниц/строк, SHA-256
+  Agent -> Pipeline : review_specification_configured()
+  Pipeline -> LLM : Extraction: все диапазоны документа
+  LLM --> Pipeline : Структурированные требования
+  Pipeline -> Pipeline : Проверка цитат, R-ID
+  par Основная проверка
+    Pipeline -> Pipeline : Детерминированные проверки
+    par Индивидуальные партии
+      Pipeline -> LLM : 9 критериев на требование
+      LLM --> Pipeline : Матрицы + замечания
+    else Проверка набора
+      Pipeline -> LLM : 6 критериев всего ТЗ
+      LLM --> Pipeline : Матрица набора + замечания
+    end
+    Pipeline -> Pipeline : Валидация, дедупликация, вердикт
+    opt Drex включён
+      Pipeline -> Drex : Исходник + D-ID
+      Drex --> Pipeline : Оценки или unavailable
+    end
+  else Опциональный нормативный контур
+    opt Выбраны регламенты
+      Pipeline -> RAG : Реестр требований + источники
+      RAG -> Index : Индексация и гибридный поиск
+      Index --> RAG : Фрагменты и покрытие
+      opt Drex включён
+        RAG -> Drex : Rerank кандидатов
+        Drex --> RAG : Ранжирование
+      end
+      RAG -> LLM : Сравнение с источниками
+      LLM --> RAG : Нормативные наблюдения
+      RAG -> RAG : Проверка обеих цитат
+      RAG --> Pipeline : RF-ID / unavailable
+      opt Сравнение завершено и Drex включён
+        Pipeline -> Drex : RF-ID и оба источника
+        Drex --> Pipeline : Оценки или unavailable
+      end
+    end
+  end
+  alt Обязательная стадия не завершена
+    Pipeline --> Agent : Ошибка
+    Agent --> API : HTTP error
+    API --> UI : Ошибка проверки
+  else Отчёт валиден
+    Pipeline --> Agent : ReviewReport + Markdown
+    Agent -> DB : Сохранение source_units + report
+    DB --> Agent : Commit
+    Agent --> API : JSON
+    API --> UI : JSON
+    UI --> User : Отчёт и экспорт Markdown
+  end
+end
+@enduml

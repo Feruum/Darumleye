@@ -1,4 +1,37 @@
-# TemplateHack
+# Spec Review — FinTech requirements validator
+
+Spec Review 2.0 uses **`multi_agent` by default**, with GPT-6 Luna as the selected model in the example configuration. The independent experts, three paired evidence validators, global consolidation, Evidence Graph and optional Langfuse observability are described in [Spec Review 2.0 architecture](vibe/docs/MULTI_AGENT_REVIEW.ru.md). Select `--review-mode legacy` in the CLI or Legacy in the workspace to use the baseline. Repeating an archived review retains its original mode; historical reports without mode metadata repeat in `legacy`. The default is a product decision, not proof of uniformly superior quality: comparative evidence remains preliminary.
+
+Spec Review is a static requirements-review agent for the BCC-HUB × MNU FinTech Hackathon. It reads PDF, Markdown, UTF-8 text, DOCX, XLSX, CSV, JPG/JPEG and PNG, extracts individual requirements, checks each requirement and the set as a whole, validates source quotations, and writes a Russian-language report. Scanned PDF pages, photos and embedded DOCX pictures use local OCR; unreadable pages or image units prevent a ready verdict. The React workspace adds an interactive report inspector and report download. The original TemplateHack RAG and account modules remain available.
+
+## Reproduce the hackathon run
+
+The document-only CLI requires Python 3.12+, [uv](https://docs.astral.sh/uv/), and one OpenAI-compatible model with JSON output. It does not require Docker, PostgreSQL, Chroma, Bun, a browser, or embeddings. The official Markdown case needs no OCR. To review images and scanned PDFs locally, install Tesseract with Russian, Kazakh and English language packs and Poppler for PDF rasterization; see [input limits and verification](vibe/docs/SPEC_REVIEW.md#limits-and-verification).
+
+1. Obtain a WikiVibe key for `gpt-6-luna`. Multi-agent extraction and expert reviews use low reasoning effort; paired evidence validators, Finalizer and targeted re-review use medium. Other compatible JSON-capable models (including `glm-5.3`) can be selected with a matching gateway and key.
+2. Copy the root `.env.example` to `.env` and fill `AGENT_LLM_API_KEY`. Change the base URL and model if needed. Keep `.env` private.
+3. Obtain the [organizers' source document](https://github.com/BCC-HUB/ai-requirements-validator-task/blob/main/docs/requirements.md). For example, save it as `.artifacts/requirements.md` (this directory is ignored by Git).
+4. From the repository root, run:
+
+```bash
+uv run --project vibe/services/agent --frozen python -m agent.spec_review_cli --input .artifacts/requirements.md --output .artifacts/report.md --env-file .env
+```
+
+The agent writes `.artifacts/report.md` using the current `multi_agent` default. Add `--review-mode legacy` for the historical baseline; specify a mode explicitly to reproduce a comparison trial. Set `--output .artifacts/report.json` for the structured representation with the same Markdown report. For a shorter command, use `cd vibe && bun run review ../.artifacts/requirements.md` (Bun is optional; the direct CLI above remains supported). Without `--output`, a Markdown report named `<input>.review.md` is saved alongside the document; existing reports get numbered suffixes. The CLI shows real stage/request progress, elapsed time, and a summary. Use `--format json` for automatic JSON output, `--quiet` for just the saved path, or `--print-report` for the complete report on stdout, with progress on stderr. On invalid input or incomplete model output the CLI exits nonzero without writing a new report. For a full document on a slow or rate-limited provider, see the [complete organizer evaluation](vibe/docs/SPEC_REVIEW.md#complete-organizer-evaluation) with opt-in checkpoints and the independent report audit. Submit the generated report and the source document alongside the repository link, not as replacements for agent source.
+
+Optional independent finding verification: set `AGENT_SPEC_REVIEW_USE_NACE=true` and `NACE_API_KEY` in the same configuration file. Drex scores the support of each finding against the original document; disagreement is reported without removing findings or changing the main verdict. See [decision review and source boundaries](vibe/docs/SPEC_REVIEW.md#independent-decision-review-with-nace-drex).
+
+Optional reference review: pass `--reference-manifest PATH` for a JSON manifest of explicitly selected standards, approved bank policies, API/testing documents and legal/regulatory source files. Selected references are indexed in ChromaDB, ranked per requirement with hybrid retrieval, and optionally reranked by Drex. Each candidate discrepancy cites both documents, retrieval coverage is explicit, and the separate section does not alter the core report. A local lexical-feature fallback works without a trained embedding model. See the [reference corpus guide](vibe/docs/REGULATORY_CONTEXT.md) and [manifest example](vibe/docs/examples/reference-manifest.example.json). Omit the option for the official document-only run.
+
+For the web workspace, configure the same model values in `vibe/.env`, follow the local stack setup below, and open `/app/assistant`. See [review architecture, limits, and checks](vibe/docs/SPEC_REVIEW.md).
+
+Optional web workflow: select a finding in a completed report, request an AI correction or analyst clarification, accept individual proposals, export a separate revised specification, and repeat the original review. The original source and report are unchanged. See [correction and re-review](vibe/docs/SPEC_REVIEW.md#optional-correction-and-re-review) and the [quality evaluation guide](vibe/docs/QUALITY_EVALUATION.md) for the paired synthetic benchmark and measured-effort methodology.
+
+For the hackathon business-value hypothesis, see the [Kazakhstan-based cost and productivity scenario](vibe/docs/BUSINESS_VALUE.ru.md). Observed model runtime is separated from explicitly estimated analyst effort and public comparable API prices.
+
+---
+
+## Original application foundation
 
 A local hackathon application with a public site, account registration, a private workspace, and a modular AI-agent backend. Its initial RAG module processes each user's PDF and TXT documents and streams answers with source citations when a model provider is configured.
 
@@ -60,7 +93,7 @@ The complete local stack was started and its endpoints checked again on **2026-1
 | Browser payments and checkout | Not implemented in the active application | Recorded as absent in the capability registry |
 | Mobile app | Inactive | Only its guide is present on this launch path; it is not started or checked here |
 | Private agent memory | Implemented and locally tested | Explicit note creation/deletion, PostgreSQL persistence, trusted-owner retrieval, and cross-user isolation; the agent has read-only memory tools |
-| Original Go auth service / Next.js dashboard | Retired | Replaced by the existing Bun/React application; original source remains in Git history |
+| Original Go auth service / Next.js dashboard | Retired | Replaced by the existing Bun/React application; original source remains in the upstream TemplateHack history |
 
 No external AI or email provider is configured in the current local environment. Account features work independently of those integrations. A healthy agent process does not mean that real AI indexing and answers are ready.
 
@@ -68,7 +101,7 @@ No external AI or email provider is configured in the current local environment.
 
 | Layer | Technologies | Responsibility |
 | --- | --- | --- |
-| Languages and runtimes | TypeScript 6, Bun 1.4+, Node.js 22.12+, Python 3.12+ | Web/API development, task orchestration, and the Python service |
+| Languages and runtimes | TypeScript 6, Bun 1.4+, Node.js 22.13+ LTS, Python 3.12+ | Web/API development, task orchestration, and the Python service |
 | Public website | React 19, Vite 8, Tailwind CSS 4, React Three Fiber / Three.js | Pre-rendered static React page and a lazy 3D scene |
 | Private workspace | React 19, Vite 8, TanStack Router / Query / Form | Account routes, server state, forms, profile/admin screens, and agent UI |
 | UI primitives | shadcn-style components, Radix / Base UI, Tailwind CSS 4 | Shared controls, layout, and theme; shared CSS is stored locally with its MIT license |
@@ -100,7 +133,7 @@ Run the application commands from `vibe/`. Git is configured at the parent works
 
 ## Quick start on Windows
 
-Requirements: Bun 1.4+, Node.js 22.12+, and Docker Desktop with its engine running. Direct Python development also requires Python 3.12+ and `uv`; the normal launch runs Python in Docker.
+Requirements: Bun 1.4+, Node.js 22.13+ LTS, and Docker Desktop with its engine running. Direct Python development also requires Python 3.12+ and `uv`; the normal launch runs Python in Docker.
 
 ```powershell
 Set-Location vibe
@@ -165,7 +198,7 @@ Python tests and the manual RAG scenario are documented in [TESTING.md](vibe/doc
 
 ## Git and local files
 
-The project is published on `main` in `https://github.com/Feruum/TemplateHack.git`. The local `origin` points to that repository. Local credentials and runtime data are not included in the published source.
+The project repository is [Feruum/Darumleye](https://github.com/Feruum/Darumleye), branch `main`. Keep credentials and local runtime data in the ignored workspace paths.
 
 `.gitignore` excludes dependencies, generated builds, local `.env` files, test artifacts, uploads, and infrastructure state. Environment examples remain versionable. Keep API keys and private data in local configuration.
 
@@ -173,4 +206,4 @@ The project is published on `main` in `https://github.com/Feruum/TemplateHack.gi
 
 Start with the [application README](vibe/README.md), [architecture](vibe/docs/ARCHITECTURE.md), and [local database guide](vibe/docs/LOCAL_DATABASE.md). Active product decisions are recorded in [CHECKLIST.md](vibe/CHECKLIST.md).
 
-The Vibe-derived application uses Apache License 2.0. Preserve [LICENSE](vibe/LICENSE), [NOTICE](vibe/NOTICE), and the original attribution when distributing it. The [consolidation guide](vibe/docs/RAG_CONSOLIDATION.md) records the original agent source and its recovery from Git history.
+The Vibe-derived application uses Apache License 2.0. Preserve [LICENSE](vibe/LICENSE), [NOTICE](vibe/NOTICE), and the original attribution when distributing it. The [consolidation guide](vibe/docs/RAG_CONSOLIDATION.md) records the original agent source and its recovery from the upstream TemplateHack history.

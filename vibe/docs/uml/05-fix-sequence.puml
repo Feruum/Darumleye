@@ -1,0 +1,41 @@
+@startuml SpecReviewFixSequence
+Title Доработка и повторная проверка — Sequence diagram
+skinparam shadowing false
+actor "Аналитик" as User
+boundary "Review Fix Workspace" as UI
+control "Bun API" as API
+control "FastAPI / spec_fix" as Fix
+database "Архив PostgreSQL" as DB
+participant "LLM" as Model
+control "Spec Review Pipeline" as Review
+User -> UI : Выбирает замечание D-ID
+loop Уточнение или генерация
+  UI -> API : POST /api/agent/spec-reviews/:id/fix
+  API -> Fix : Проверенный запрос
+  Fix -> DB : Загрузить принадлежащий пользователю отчёт
+  DB --> Fix : Исходные строки + finding
+  Fix -> Model : Источник, замечание, уточнение
+  Model --> Fix : patch или clarification
+  Fix -> Fix : Проверить структуру и якоря
+  Fix --> API : FixProposal
+  API --> UI : JSON
+  alt Нужна уточняющая информация
+    UI --> User : Вопрос
+    User -> UI : Ответ аналитика
+  else Есть предложение
+    UI --> User : Before / After
+    User -> UI : Принять или отклонить
+  end
+end
+UI -> UI : Применить принятые правки к оригиналу\nбез изменения архива
+opt Повторная полная проверка
+  User -> UI : Проверить повторно
+  UI -> API : POST /api/agent/spec-reviews\nНовый текст + доступные reference files
+  API -> Review : Через FastAPI
+  Review -> Review : Полный AI-пайплайн неизменён
+  Review -> DB : Новая запись (новый run_id)
+  Review --> API : Новый отчёт
+  API --> UI : JSON
+  UI --> User : Сравнение результатов
+end
+@enduml

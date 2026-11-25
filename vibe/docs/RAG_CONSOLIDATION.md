@@ -6,7 +6,7 @@ The active agent lives in `services/agent`. The React workspace calls it through
 
 Before consolidation, the original Python subtree had only seven files without a counterpart inside `services/agent`: its `.env.example`, `.gitignore`, `AGENTS.md`, `buf.gen.yaml`, `langgraph.json`, `package.json`, and root-level `test_memory.py`. The active environment, instructions, package configuration, and API contracts replace the first six. The new memory persistence, owner-isolation, HTTP, and concurrent-quota tests replace the final integration smoke test.
 
-The outer reference directory contained 263 tracked files and no modified, untracked, ignored, or nested Git files at the removal preflight. Its original sources remain recoverable in Git history, including commit `daa06fe`:
+The outer reference directory contained 263 tracked files and no modified, untracked, ignored, or nested Git files at the removal preflight. Its original sources remain available in [the upstream TemplateHack history](https://github.com/Feruum/TemplateHack/commit/daa06fe). Run these commands in a checkout of that repository.
 
 ```powershell
 git show daa06fe:agentic-rag/apps/agent/src/agent/graphs/workflow.py
@@ -37,6 +37,8 @@ No additional dependency was installed for these features. The existing `rank-bm
 Keyword candidates are read from the existing Chroma collection. Existing documents work without a reindex, and deletion removes both retrieval paths. To bound local CPU and memory, the default maximum is 2,000 chunks per filtered corpus, configurable from 1 to 10,000 with `AGENT_RETRIEVAL_LEXICAL_MAX_CHUNKS`. If the owner corpus exceeds the limit, the entire query uses dense-only retrieval and logs `lexical_corpus_limit`; a partial corpus is not scored as if it were complete. This bound is a local starter limit, not a scalable full-text service.
 
 Set `AGENT_USE_HYBRID_SEARCH=false` to compare the dense baseline. `AGENT_USE_RERANKER` remains independent. The local tests use deterministic deliberately weak embeddings to prove keyword recovery, Unicode handling, deduplication, owner isolation, and deletion. They do not measure real embedding-model or generated-answer quality. Before making accuracy claims, evaluate both settings on representative labeled questions using the same documents and configured providers.
+
+Nace Drex is an optional alternative reranking provider. It scores the owner-filtered candidates via the Nace System One API and keeps the source passages unchanged. The original retrieval order is the fallback. See [NACE_RAG.md](NACE_RAG.md) for configuration, request limits and verification.
 
 ## Memory behavior
 

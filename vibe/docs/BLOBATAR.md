@@ -1,29 +1,26 @@
-# Generated account avatars
+# Glass mascot and Blobatar motion
 
-The webapp uses `blobatar` and `@blobatar/react`, both pinned to **2.7.0**, for deterministic account avatars. The npm packages are MIT licensed. The generator runs locally in the browser and during server rendering; it does not call the hosted Blobatar avatar endpoint.
+The approved glass-and-titanium character is shared by the workspace and public website through `@web-app-demo/mascot` (`packages/mascot`). `blobatar` and `@blobatar/react` are pinned to **2.7.0**, MIT licensed. The original body artwork is a local optimized transparent WebP. Only the animated SVG eyes and mouth are rendered over it; no external avatar service is used.
 
 ## Ownership and behavior
 
-- `components/identity/BlobAvatar.tsx` owns the decorative React component and imports the package motion stylesheet.
-- `components/identity/avatar-seed.ts` derives a namespaced seed from the stable account ID. Renaming a profile does not change its face.
-- The Arc avatar adapter and account-menu adapter use the same seed. Their existing photo support takes precedence; missing or failed photos show the generated fallback.
-- The account menu reuses the existing authenticated avatar query and object-URL loader. Signed private download URLs are not put in its image markup.
-- The assistant-ui message renders a separate `thinking` Blobatar while awaiting its first text. The visible `Thinking…` text remains. Blobatar does not own chat state, streams, cancellation, or tools.
-
-User faces animate on hover. The waiting assistant uses the package's explicit `thinking` expression and continuous mode. The imported stylesheet disables animation under `prefers-reduced-motion`. Faces are decorative and hidden from assistive technology; the surrounding UI supplies the account name or waiting text. There is no pointer-tracking gaze integration.
+- `packages/mascot/src/index.tsx` owns the glass shell, separate SVG face, five operational states, thirteen decorative moods, six muted colour palettes, a spring gesture layer, and the Blobatar gaze and expression integration. `performance.ts` owns deterministic mood timing and the paused-on-hidden-tab scheduler. The shell artwork was edited to remove baked facial features. The motion rig targets the pinned package's CSS and supplies a transparent geometric proxy for its gaze survey. Recheck the rig if Blobatar changes major version.
+- The approved reference is `docs/assets/glass-mascot-concept-v4.png`; the clean source is `docs/assets/glass-mascot-body.png`. The runtime WebP is resized and encoded from that clean asset. The favicon uses the approved idle artwork.
+- Assistant state maps to violet idle/speaking, glacier thinking, jade success, and rose error. Explicit palette overrides also support amber and graphite. Account fallbacks derive stable colours and slight eye variations from the account ID; names, email addresses and IDs are never sent to a hosted avatar endpoint. Uploaded photos take precedence.
+- The sidebar, sign-in screen, guide, analysis screen, completed report, chat, account fallback and landing use the same identity. Large faces turn once on hover, lean toward the pointer, squeeze on press and return with a Motion spring. Inactive large faces progress from a wink and curiosity to boredom, yawn and sleep; pointer or keyboard activity wakes them. Thinking cycles pondering, inspection and a brief spark without changing the review state. Historical chat responses do not attach a pointer-tracking driver. State labels remain accessible outside the decorative artwork.
+- The native Blobatar gaze driver follows a fine pointer and respects reduced-motion preferences. The mood scheduler and spring gestures are disabled under reduced motion; `mascot.css` suppresses custom body performances, speech and hover turns. The component never controls chat submission, review status or backend operations.
+- Local preview: `http://127.0.0.1:5173/mascot-preview.html` (Vite development only). Switch states, moods and palettes, move the pointer, press the character, or leave it idle; no provider request is needed. Production build entrypoints remain unchanged.
 
 ## Checks
 
-From `vibe/webapp`:
-
-```powershell
-bun test tests/blob-avatar.test.ts tests/avatar-upload.test.ts tests/auth-queries.test.ts
+```bash
+cd vibe
+bun test webapp/tests/blob-avatar.test.ts webapp/tests/agent-response-identity.test.ts
+bun run --cwd webapp build
+bun run --cwd website build
+bun test website/build-contracts/static-build.test.ts
 ```
 
-The component tests exercise local generation, stable identity across renames, distinct accounts, profile/menu consistency, uploaded-photo precedence, and the decorative thinking state. Existing upload and session-cache tests cover their unchanged owners. These checks do not replace rendered-browser verification of the ongoing Arc interface migration.
-
-Local verification on 2026-10-16: **24 focused tests passed**, including six Blobatar cases. A scoped TypeScript check passed for the seven changed source entrypoints and their imported dependencies. The running Vite server compiled the new Blobatar module. The full app typecheck reported unresolved existing UI packages; ESLint could not resolve `minimatch` in the available environment. No full-app lint or browser pass is claimed by this integration check.
+The tests cover local rendering, distinct stable accounts, photo precedence, eyes and state classes, color mapping, and the landing's local asset references. The live preview verifies pointer response, color and motion independently of model calls.
 
 Primary references: [Blobatar documentation](https://blobatar.dev/docs), [React adapter source](https://github.com/Alain00/blobatar/tree/main/packages/react), and [upstream license](https://github.com/Alain00/blobatar/blob/main/LICENSE).
-
-The subsequent Arc integration check passed full-app TypeScript, ESLint, 97 webapp tests (including all six Blobatar cases), production builds, real avatar-upload browser paths, and desktop/mobile screenshot review. See [VERIFICATION.md](VERIFICATION.md) for the complete dated integration record.

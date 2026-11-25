@@ -4,7 +4,7 @@ The active test workflow runs locally. Run these commands from the application d
 
 ## RAG chat interface libraries
 
-Run `bun run --cwd webapp test` for the assistant-ui adapter/SSE and agent-session cache regression tests. Cache tests cover sign-out, replacement login, cross-account reads, and cancellation. Run `bun run --cwd webapp e2e agent.spec.ts` for the existing real account/API harness with controlled RAG responses and its isolated test PostgreSQL database. The browser cases cover desktop/mobile chat, sources/tools, module selection, uploads, note save/reload/delete, terminal SSE/HTTP errors, stop, and recovery. They require the installed Chromium runner and do not prove real-provider answer quality. See [CHAT_UI.md](CHAT_UI.md) for ownership and reproduction details.
+Run `bun run --cwd webapp test` for the assistant-ui adapter/SSE and agent-session cache regression tests. Cache tests cover sign-out, replacement login, cross-account reads, and cancellation. Run `bun run --cwd webapp e2e agent.spec.ts` for the existing real account/API harness with controlled RAG responses and its isolated test PostgreSQL database. The browser cases cover desktop/mobile chat, sources/tools, automatic routing, suggestions, uploads, note save/reload/delete, terminal SSE/HTTP errors, stop, and recovery. They require the installed Chromium runner and do not prove real-provider answer quality. See [CHAT_UI.md](CHAT_UI.md) for ownership and reproduction details.
 
 ## Arc interface checks
 

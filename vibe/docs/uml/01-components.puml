@@ -1,0 +1,75 @@
+@startuml SpecReviewComponents
+Title Spec Review — Component diagram
+skinparam componentStyle uml2
+skinparam shadowing false
+skinparam backgroundColor white
+left to right direction
+actor "Аналитик / QA" as User
+package "Presentation" {
+  component "Website\nReact + Vite SSG" as Website
+  component "Webapp\nReact + TanStack\nassistant-ui" as Web
+}
+package "Application — Bun + Hono" {
+  component "Auth / Sessions / RBAC" as Auth
+  component "Agent API\nAuthenticated proxy" as Gateway
+  component "Scheduler / Outbox" as Jobs
+}
+package "AI Service — Python + FastAPI" {
+  component "Spec Review API" as Routes
+  component "Full-document pipeline" as Core
+  component "Evidence validation\nStatistics / verdict" as Validator
+  component "Reference RAG\nHybrid retrieval" as Ref
+  component "Drex verification" as Verify
+  component "Review archive / fix" as Archive
+  component "LangGraph\nreview_chat / rag" as Chat
+  component "RAG ingestion" as Ingest
+  component "Spec Review CLI" as CLI
+}
+package "Data" {
+  database "PostgreSQL\nweb_app_demo" as AppDB
+  database "PostgreSQL\nagent" as AgentDB
+  database "ChromaDB\nRAG + reference index" as Chroma
+  folder "Local file storage" as Files
+}
+cloud "External AI providers" {
+  component "OpenAI-compatible LLM" as LLM
+  component "Nace Drex" as Drex
+  component "Embedding API (optional for reference RAG)" as Embedding
+}
+User --> Website
+User --> Web
+Website --> Web : переход в workspace
+Web --> Auth : auth API
+Web --> Gateway : REST / SSE
+Gateway --> Auth : check session
+Auth --> AppDB
+Jobs --> AppDB
+Gateway --> Routes : internal HTTP
+Gateway --> Chat : internal HTTP / SSE
+Gateway --> Ingest : internal HTTP
+Routes --> Core
+Routes --> Archive
+CLI --> Core
+Core --> LLM : extraction / individual / set
+Core --> Validator
+Core --> Ref : optional
+Core --> Verify : optional
+Ref --> Chroma : scoped query
+Ref --> Embedding : configured provider
+Ref --> LLM : comparison
+Ref --> Drex : optional rerank
+Verify --> Drex : support probabilities
+Archive --> AgentDB : source + report
+Archive --> LLM : fix proposal
+Chat --> AgentDB : archived review / checkpoints
+Chat --> Chroma : general RAG only
+Chat --> LLM : response
+Ingest --> AgentDB : document status
+Ingest --> Files
+Ingest --> Embedding
+Ingest --> Chroma
+note bottom of CLI
+  CLI document-only: no DB or web services.
+  Reference mode: local Chroma.
+end note
+@enduml
