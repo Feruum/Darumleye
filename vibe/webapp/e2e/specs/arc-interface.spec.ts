@@ -22,6 +22,33 @@ async function capture(page: Page, testInfo: TestInfo, name: string) {
   await page.screenshot({ path: testInfo.outputPath(`${name}.png`), fullPage: true })
 }
 
+test('desktop workspace icons respond to hover without moving the menu rows and respect reduced motion', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await register(page)
+  const rows = page.locator('[data-testid^="workspace-nav-"]')
+  await expect(rows).toHaveCount(5)
+  const motionValues: string[] = []
+
+  for (const row of await rows.all()) {
+    const icon = row.locator('svg').first()
+    await expect(icon).toHaveCSS('transform', 'none')
+    const before = await row.boundingBox()
+    await row.hover()
+    await expect(icon).not.toHaveCSS('transform', 'none')
+    await expect.poll(() => icon.evaluate((node) => node.getAnimations().length)).toBe(0)
+    motionValues.push(await icon.evaluate((node) => getComputedStyle(node).transform))
+    expect(await row.boundingBox()).toEqual(before)
+    await page.mouse.move(500, 80)
+    await expect(icon).toHaveCSS('transform', 'none')
+  }
+  expect(new Set(motionValues).size).toBeGreaterThanOrEqual(4)
+
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await rows.last().hover()
+  await expect(rows.last().locator('svg').first()).toHaveCSS('transform', 'none')
+})
+
 for (const width of [1440, 390]) {
   test(`Arc interface preserves account, profile, settings, and admin routes at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 })
@@ -52,7 +79,7 @@ for (const width of [1440, 390]) {
     await expect(theme).toContainText('Dark')
     await capture(page, testInfo, 'settings-dark')
     await page.goto('/app/assistant')
-    await expect(page.getByTestId('agent-memory')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Посмотреть пример отчёта' })).toBeVisible()
     await capture(page, testInfo, 'agent')
     await accountMenu(page)
     await page.getByRole('menuitem', { name: 'Log out', exact: true }).click()
@@ -103,7 +130,7 @@ for (const width of [390, 700]) {
     await accountMenu(page)
     await settings.focus()
     await settings.press('Escape')
-    const profileLink = page.getByRole('link', { name: 'Profile', exact: true })
+    const profileLink = page.getByTestId('workspace-nav-/app/profile')
     await profileLink.focus()
     await expect(page.getByRole('menu')).toHaveCount(0)
     await expect(profileLink).toBeFocused()

@@ -19,6 +19,12 @@ test('role navigation exposes only the current workspace', () => {
   expect(homePathForRole('admin')).toBe('/admin')
 })
 
+test('review chat is a distinct user-owned navigation destination', () => {
+  expect(navigationItemsForRole('user').some((item) => item.to === '/app/chat')).toBe(true)
+  expect(safeReturnPath('user', '/app/chat')).toBe('/app/chat')
+  expect(safeReturnPath('admin', '/app/chat')).toBeNull()
+})
+
 test('cross-role destinations resolve to the current role home', () => {
   expect(resolveRoleDestination('user', '/app/profile')).toBe('/app/profile')
   expect(resolveRoleDestination('user', '/admin/users')).toBe('/app')
@@ -119,4 +125,33 @@ test('return paths reject other roles, public pages, and every open-redirect sha
   expect(safeReturnPath('admin', '\\\\attacker.example/admin')).toBeNull()
   expect(safeReturnPath('admin', '/%5C%5Cattacker.example/admin')).toBeNull()
   expect(safeReturnPath('admin', '/admin%2F..%2F%2Fattacker.example')).toBeNull()
+})
+
+
+test('the new-review action accepts a fresh run number without requiring it on normal navigation', () => {
+  const validate = router.routesById['/userWorkspace/app/assistant'].options.validateSearch
+  if (typeof validate !== 'function') throw new Error('Missing review search validation')
+  expect(validate({ newReview: 2 })).toEqual({ newReview: 2 })
+  expect(validate({})).toEqual({})
+  expect(validate({ newReview: -1 })).toEqual({})
+})
+
+
+test('saved review search identifies the same review in the report and chat routes', () => {
+  const reviewId = '0196f6f8-6600-7000-8000-000000000002'
+  for (const routeId of ['/userWorkspace/app/assistant', '/userWorkspace/app/chat'] as const) {
+    const validate = router.routesById[routeId].options.validateSearch
+    if (typeof validate !== 'function') throw new Error('Missing saved review search validation')
+    expect(validate({ reviewId })).toEqual({ reviewId })
+    expect(validate({ reviewId: 'invalid' })).toEqual({})
+  }
+})
+
+test('dedicated correction view is available only for a saved review', () => {
+  const validate = router.routesById['/userWorkspace/app/assistant'].options.validateSearch
+  if (typeof validate !== 'function') throw new Error('Missing review search validation')
+  const reviewId = '0196f6f8-6600-7000-8000-000000000002'
+  expect(validate({ reviewId, view: 'fix' })).toEqual({ reviewId, view: 'fix' })
+  expect(validate({ reviewId, view: 'unsupported' })).toEqual({ reviewId })
+  expect(validate({ view: 'fix' })).toEqual({})
 })

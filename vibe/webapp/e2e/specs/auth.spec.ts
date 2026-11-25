@@ -32,7 +32,7 @@ test('registers, restores the session, opens protected UI, and logs out', async 
 
   await expect(page).toHaveURL(/\/app$/)
   await expect(page.getByRole('navigation', { name: 'Primary navigation' })).toBeVisible()
-  await expect(page.getByRole('heading', { level: 1, name: `Welcome, ${displayName}` })).toBeVisible()
+  await expect(page.getByTestId('dashboard-account')).toHaveText(displayName)
   await expect(page.getByRole('link', { name: 'Dashboard' })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Users' })).toHaveCount(0)
   await expect(page.getByRole('main').getByText(email, { exact: true })).toBeVisible()
@@ -57,9 +57,9 @@ test('registers, restores the session, opens protected UI, and logs out', async 
 
   await expect((await refreshAfterReload).status()).toBe(200)
   await expect((await meAfterReload).status()).toBe(200)
-  await expect(page.getByRole('heading', { name: `Welcome, ${displayName}` })).toBeVisible()
+  await expect(page.getByTestId('dashboard-account')).toHaveText(displayName)
 
-  await page.getByRole('link', { name: 'Profile' }).click()
+  await page.getByTestId('workspace-nav-/app/profile').click()
   await expect(page.getByLabel('Email')).toHaveAttribute('readonly', '')
   await page.getByLabel('Display name').fill('  Updated Web User  ')
   await page.getByRole('button', { name: 'Save profile' }).click()
@@ -116,8 +116,8 @@ test('keeps one logical browser session active across concurrent tabs', async ({
 
   await expect(page).toHaveURL(/\/app$/)
   await expect(secondPage).toHaveURL(/\/app$/)
-  await expect(page.getByRole('heading', { name: `Welcome, ${email}` })).toBeVisible()
-  await expect(secondPage.getByRole('heading', { name: `Welcome, ${email}` })).toBeVisible()
+  await expect(page.getByTestId('dashboard-account')).toHaveText(email)
+  await expect(secondPage.getByTestId('dashboard-account')).toHaveText(email)
 
   await page.route('**/api/auth/logout', async (route) => {
     await route.fulfill({

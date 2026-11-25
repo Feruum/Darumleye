@@ -1,0 +1,27 @@
+:root { font-family: 'Figtree Variable', Arial, sans-serif; background: #f5f4f2; color: #19151e; font-synthesis: none; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+.preview-page { max-width: 1120px; margin: 0 auto; padding: 36px clamp(16px, 4vw, 56px) 48px; }
+.preview-page header { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 12px; font-weight: 650; letter-spacing: .07em; color: #706978; }
+.preview-page header a { color: #7030dd; letter-spacing: 0; text-decoration: none; }
+.preview-page h1 { font-size: clamp(30px,5vw,46px); margin: 30px 0 20px; letter-spacing: -.04em; }
+.preview-grid { display: grid; grid-template-columns: minmax(0,1.12fr) minmax(0,1fr); gap: 16px; }
+.preview-stage, .preview-controls { background: #fff; border: 1px solid #dedbe1; border-radius: 20px; min-width: 0; }
+.preview-stage { min-height: 390px; display: grid; place-items: center; align-content: center; gap: 20px; padding: 30px; background: radial-gradient(circle at center, #fff 10%,#f1eafb 90%); }
+.preview-character { width: min(100%,270px); aspect-ratio: 1; }
+.preview-state { color: #6d6875; font-size: 13px; }
+.preview-controls { padding: 22px; display: grid; align-content: start; gap: 14px; }
+.preview-controls h2 { font-size: 16px; font-weight: 700; margin: 0; }
+.preview-buttons { display: flex; flex-wrap: wrap; gap: 7px; }
+.preview-controls button { border: 1px solid #dedbe1; background: #fff; color: #322b39; font: inherit; font-size: 13px; padding: 8px 12px; border-radius: 8px; cursor: pointer; transition: border-color .16s ease-out, background .16s ease-out, transform .12s ease-out; }
+.preview-controls button:hover { background: #f7f4fb; }
+.preview-controls button:active { transform: scale(.98); }
+.preview-controls button[aria-pressed=true] { color: #7030dd; border-color: #a783eb; background: #f3edfc; }
+.preview-controls button:focus-visible, .preview-page a:focus-visible { outline: 2px solid #7030dd; outline-offset: 3px; }
+.preview-palette-title { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+.preview-palettes { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
+.preview-controls .preview-palette { display: grid; place-items: center; gap: 3px; padding: 8px 3px 10px; min-width: 0; }
+.preview-palette > span:first-child { display: block; width: 66px; max-width: 100%; aspect-ratio: 1; }
+.preview-palette > span:last-child { font-size: 11px; overflow-wrap: anywhere; }
+@media (max-width: 760px) { .preview-grid { grid-template-columns: 1fr; } .preview-stage { min-height: 285px; padding: 16px; } .preview-character { width: min(100%,220px); } }
+@media (prefers-reduced-motion: reduce) { .preview-controls button { transition: none; } }

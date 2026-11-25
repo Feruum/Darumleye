@@ -1,0 +1,54 @@
+.sr-evidence-explorer { min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; }
+.sr-graph-toolbar { max-height: 55%; overflow: auto; flex: none; padding: .85rem 1rem; border-bottom: 1px solid var(--sr-line); display: grid; gap: .65rem; }
+.sr-graph-summary { display: grid; gap: .22rem; }
+.sr-graph-experts { max-width: 100%; }
+.sr-graph-experts summary { color: var(--sr-violet); cursor: pointer; }
+.sr-graph-experts ul { list-style: none; display: flex; flex-wrap: wrap; gap: .4rem; margin: .45rem 0 0; padding: 0; }
+.sr-graph-experts li { border: 1px solid var(--sr-line); border-radius: .4rem; padding: .35rem .55rem; display: grid; gap: .1rem; }
+.sr-graph-filters { display: grid; grid-template-columns: minmax(10rem,1.4fr) repeat(3,minmax(7rem,1fr)); gap: .55rem; }
+.sr-graph-filters label { min-width: 0; display: grid; gap: .24rem; }
+.sr-graph-filters :is(input,select) { width: 100%; min-width: 0; border: 1px solid var(--sr-line); background: var(--sr-surface); color: var(--sr-ink); height: 2.15rem; border-radius: .4rem; padding: .25rem .5rem; font-size: .8rem; }
+.sr-graph-actions { display: flex; gap: .45rem; align-items: center; flex-wrap: wrap; }
+.sr-graph-actions > span { margin-left: auto; }
+.sr-graph-groups { display: flex; gap: .3rem; flex-wrap: wrap; }
+.sr-graph-groups button { display: flex; align-items: center; gap: .3rem; border: 1px solid var(--sr-line); border-radius: .35rem; padding: .24rem .4rem; font-size: .7rem; color: var(--sr-muted); }
+.sr-graph-groups button[aria-pressed=true] { background: var(--sr-violet-soft); color: var(--sr-violet); }
+.sr-graph-groups i { width: .55rem; height: .55rem; border-radius: 50%; }
+.sr-graph-content { flex: 1; display: grid; grid-template-columns: minmax(0,1fr) minmax(16rem,26%); min-height: 0; }
+.sr-graph-canvas { min-width: 0; min-height: 0; background: var(--sr-canvas); }
+.sr-graph-canvas .react-flow { --xy-node-background-color: var(--sr-surface); --xy-node-color: var(--sr-ink); --xy-edge-stroke: var(--sr-muted); --xy-background-pattern-dots-color: var(--sr-line); --xy-controls-button-background-color: var(--sr-surface); --xy-controls-button-color: var(--sr-ink); --xy-minimap-background-color: var(--sr-surface); }
+.sr-graph-canvas .react-flow__node { border-width: 2px; border-radius: 8px; background: var(--sr-surface); color: var(--sr-ink); text-align: left; }
+.sr-graph-canvas .react-flow__node.selected { outline: 3px solid var(--sr-violet); outline-offset: 3px; }
+.sr-graph-canvas .react-flow__node.sr-graph-group-node { border-style: dashed; }
+.sr-graph-node-label { display: grid; gap: .22rem; align-content: center; height: 100%; overflow: hidden; }
+.sr-graph-node-label span { font-size: .7rem; color: var(--sr-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sr-graph-node-label strong { font-size: .8rem; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.sr-graph-details { border-left: 1px solid var(--sr-line); padding: .85rem; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: .55rem; overflow-wrap: anywhere; }
+.sr-graph-quote { display: grid; gap: .5rem; padding: .65rem; background: var(--sr-violet-soft); border: 1px solid color-mix(in srgb,var(--sr-violet) 25%,var(--sr-line)); border-radius: .65rem; }
+.sr-graph-relations { display: grid; gap: .35rem; list-style: none; margin: 0; padding: 0; }
+.sr-graph-relations button, .sr-graph-list button { display: grid; gap: .2rem; min-width: 0; padding: .55rem; text-align: left; border: 1px solid var(--sr-line); border-radius: .4rem; }
+.sr-graph-relations button { width: 100%; }
+.sr-graph-relations li[data-disputed=true] button { border-color: #c7515f; }
+.sr-graph-list { display: none; min-width: 0; min-height: 0; overflow: auto; padding: .65rem; gap: .4rem; align-content: start; }
+.sr-graph-list button[aria-pressed=true] { border-color: var(--sr-violet); background: var(--sr-violet-soft); }
+.sr-graph-list button span { color: var(--sr-muted); font-size: .7rem; }
+.sr-graph-list button strong { font-size: .82rem; overflow-wrap: anywhere; }
+.sr-evidence-explorer[data-list-mode=true] .sr-graph-list { display: grid; }
+.sr-evidence-explorer[data-list-mode=true] .sr-graph-canvas { display: none; }
+.sr-graph-empty { margin: 1rem; }
+@container (max-width: 720px) {
+  .sr-graph-toolbar { padding: .6rem; max-height: 48%; }
+  .sr-graph-filters { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .sr-graph-content { grid-template-columns: minmax(0,1fr); grid-template-rows: minmax(5rem,1fr) minmax(5rem,1fr); }
+  .sr-graph-details { border-left: 0; border-top: 1px solid var(--sr-line); }
+  .sr-graph-canvas, .sr-graph-view-toggle { display: none; }
+  .sr-graph-list { display: grid; }
+}
+.sr-graph-agreement { display: flex; flex-wrap: wrap; gap: .35rem; }
+.sr-graph-agreement > p { flex-basis: 100%; color: var(--sr-muted); }
+.sr-graph-agreement button, .sr-graph-agreement-label { border: 1px solid var(--sr-line); border-radius: .4rem; padding: .3rem .5rem; }
+.sr-graph-agreement button[data-agreement=agreed], .sr-graph-agreement-label[data-agreement=agreed] { color: #168258; }
+.sr-graph-agreement button[data-agreement=disputed], .sr-graph-agreement-label[data-agreement=disputed] { color: #c7515f; }
+.sr-graph-agreement button[aria-pressed=true] { background: var(--sr-violet-soft); border-color: currentColor; }
+.sr-graph-canvas .react-flow__node.sr-graph-agreement-agreed { border-color: #168258 !important; }
+.sr-graph-canvas .react-flow__node.sr-graph-agreement-disputed { border-color: #c7515f !important; border-style: dashed; }

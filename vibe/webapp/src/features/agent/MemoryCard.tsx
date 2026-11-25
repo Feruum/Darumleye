@@ -4,7 +4,6 @@ import { useState, type FormEvent } from 'react'
 
 import { Alert, AlertDescription } from '@/components/interface/alert'
 import { Button } from '@/components/interface/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/interface/card'
 import { Textarea } from '@/components/interface/textarea'
 import { Typography } from '@/components/typography'
 import { useAuth } from '@/features/auth'
@@ -31,28 +30,23 @@ export function MemoryCard() {
 
   const error = create.error ?? remove.error ?? query.error
   return (
-    <Card data-testid="agent-memory">
-      <CardHeader>
-        <CardTitle>Your memory</CardTitle>
-        <CardDescription>Save preferences or context for the agent. Memory contains only notes you save here. Up to 100 private notes.</CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-3">
+    <div data-testid="agent-memory" className="grid gap-3">
         <form className="grid gap-3" onSubmit={submit}>
-          <Textarea aria-label="New memory note" placeholder="For example: Reply in Russian and keep answers concise." value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={AGENT_MEMORY_MAX_LENGTH} disabled={create.isPending} />
+          <Textarea aria-label="Новая заметка" placeholder="Например: отвечай кратко." value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={AGENT_MEMORY_MAX_LENGTH} disabled={create.isPending} />
           <Button data-testid="agent-memory-save" type="submit" variant="outline" disabled={!draft.trim() || create.isPending || (query.data?.memories.length ?? 0) >= 100}>
-            {create.isPending ? 'Saving…' : 'Save note'}
+            {create.isPending ? 'Сохранение…' : 'Сохранить'}
           </Button>
         </form>
         {error && <Alert variant="destructive"><AlertDescription>{error.message}</AlertDescription></Alert>}
-        {query.isPending && <Typography tone="muted" variant="bodySm">Loading notes…</Typography>}
-        {query.data?.memories.length === 0 && <Typography tone="muted" variant="bodySm">No saved notes. Conversations and uploads are not automatically added to memory.</Typography>}
+        {query.isPending && <Typography tone="muted" variant="bodySm">Загрузка…</Typography>}
+        {(query.data?.memories.length ?? 0) >= 100 && <Typography tone="muted" variant="caption">Лимит: 100 заметок</Typography>}
+        {query.data?.memories.length === 0 && <Typography tone="muted" variant="bodySm">Нет заметок</Typography>}
         {query.data?.memories.map((note) => (
           <div key={note.id} data-testid="agent-memory-note" className="grid gap-2 border-t pt-3">
             <Typography variant="bodySm" className="whitespace-pre-wrap break-words">{note.content}</Typography>
-            <Button data-testid="agent-memory-delete" type="button" variant="outline" size="sm" disabled={remove.isPending} aria-label={`Delete note: ${note.content.slice(0, 60)}`} onClick={() => remove.mutate(note.id)}>Delete note</Button>
+            <Button data-testid="agent-memory-delete" type="button" variant="outline" size="sm" disabled={remove.isPending} aria-label={`Удалить заметку: ${note.content.slice(0, 60)}`} onClick={() => remove.mutate(note.id)}>Удалить заметку</Button>
           </div>
         ))}
-      </CardContent>
-    </Card>
+    </div>
   )
 }

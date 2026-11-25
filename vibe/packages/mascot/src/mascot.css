@@ -1,0 +1,66 @@
+.glass-mascot {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  overflow: visible;
+  flex: none;
+  user-select: none;
+}
+.glass-mascot .gm-shell { filter: hue-rotate(var(--gm-hue, 0deg)) saturate(var(--gm-saturation, 1)); transition: filter .28s ease-out; }
+.glass-mascot .gm-eye-shape { filter: drop-shadow(0 0 .9px rgb(245 224 255 / .45)); }
+.glass-mascot .gm-mouth { transform-box: fill-box; transform-origin: center; }
+.glass-mascot .gm-spin { transform-box: view-box; transform-origin: center; }
+.glass-mascot[data-mascot-state="speaking"] .gm-mouth { animation: gm-speak .62s ease-in-out infinite alternate; }
+@media (hover: hover) and (pointer: fine) {
+  .glass-mascot[data-spin="true"]:hover .gm-spin { animation: gm-spin .85s cubic-bezier(.22,.75,.19,1) 1; }
+}
+@keyframes gm-spin { to { transform: rotate(360deg); } }
+@keyframes gm-speak { from { transform: scaleY(.8); } to { transform: scaleY(1.65); } }
+/* Performance acts on its own layer so gaze, spin and gesture springs compose. */
+.glass-mascot .gm-story { transform-box: view-box; transform-origin: 50% 80%; }
+.glass-mascot[data-playful="true"][data-mascot-mood="wink"] .gm-story { animation: gm-wink .9s cubic-bezier(.23,1,.32,1) both; }
+.glass-mascot[data-playful="true"][data-mascot-mood="curious"] .gm-story { animation: gm-curious .66s cubic-bezier(.23,1,.32,1) both; }
+.glass-mascot[data-playful="true"][data-mascot-mood="bored"] .gm-story { animation: gm-slump .7s cubic-bezier(.23,1,.32,1) both; }
+.glass-mascot[data-playful="true"][data-mascot-mood="yawn"] .gm-story { animation: gm-yawn 1.65s ease-in-out both; }
+.glass-mascot[data-mascot-mood="yawn"] .gm-mouth { animation: gm-yawn-mouth 1.65s ease-in-out both; }
+.glass-mascot[data-playful="true"][data-mascot-mood="sleepy"] .gm-story { animation: gm-doze 4s ease-in-out infinite; }
+.glass-mascot[data-playful="true"][data-mascot-mood="wake"] .gm-story { animation: gm-wake .8s cubic-bezier(.23,1,.32,1) both; }
+.glass-mascot[data-playful="true"][data-mascot-mood="ponder"] .gm-story { animation: gm-ponder 3.2s ease-in-out infinite; }
+.glass-mascot[data-playful="true"][data-mascot-mood="inspect"] .gm-story { animation: gm-inspect 2.6s ease-in-out both; }
+.glass-mascot[data-playful="true"][data-mascot-mood="spark"] .gm-story { animation: gm-lightbulb 1s cubic-bezier(.23,1,.32,1) both; }
+.glass-mascot[data-playful="true"][data-mascot-mood="speaking"] .gm-story { animation: gm-nod 1.75s ease-in-out infinite; }
+.glass-mascot[data-mascot-mood="joy"] .gm-story { animation: gm-cheer .7s cubic-bezier(.23,1,.32,1) both; }
+.glass-mascot[data-mascot-mood="error"] .gm-story { animation: gm-sympathy .5s cubic-bezier(.23,1,.32,1) both; }
+.glass-mascot .gm-thought-dots > circle { opacity: .25; animation: gm-thought 1.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.glass-mascot .gm-thought-dots > circle:nth-child(2) { animation-delay: .14s; }
+.glass-mascot .gm-thought-dots > circle:nth-child(3) { animation-delay: .28s; }
+.glass-mascot .gm-sleep-marks > path { opacity: .45; animation: gm-night 3.1s ease-in-out infinite; }
+.glass-mascot .gm-sleep-marks > path:nth-child(2) { animation-delay: .64s; }
+@keyframes gm-wink { 0%,100% { transform: none; } 40% { transform: translateY(-1px) rotate(-3deg) scale(1.035,.98); } 72% { transform: rotate(1.5deg); } }
+@keyframes gm-curious { from { transform: none; } to { transform: translateY(-1px) rotate(6deg) scale(.985,1.025); } }
+@keyframes gm-slump { 0% { transform: none; } 75% { transform: translateY(4.2px) rotate(-6deg) scale(1.055,.93); } 100% { transform: translateY(3px) rotate(-4deg) scale(1.045,.955); } }
+@keyframes gm-yawn { 0% { transform: translateY(3px) rotate(-4deg) scale(1.045,.955); } 28%,45% { transform: translateY(-2px) rotate(2deg) scale(.945,1.085); } 72% { transform: translateY(2px) scale(1.055,.94); } 100% { transform: translateY(3px) rotate(-3deg) scale(1.045,.96); } }
+@keyframes gm-yawn-mouth { 0%,100% { transform: scale(.65,.65); } 30%,55% { transform: scale(1.12,1.45); } }
+@keyframes gm-doze { 0%,100% { transform: translateY(3px) rotate(-3deg) scale(1.04,.96); } 50% { transform: translateY(4.4px) rotate(-3.8deg) scale(1.065,.94); } }
+@keyframes gm-wake { 0% { transform: translateY(3px) scale(1.04,.95); } 22% { transform: translateY(-7px) scale(.93,1.09); } 48% { transform: translateY(2px) scale(1.10,.91); } 69% { transform: translateY(-1.8px) scale(.975,1.03); } 100% { transform: none; } }
+@keyframes gm-ponder { 0%,100% { transform: rotate(-3.8deg) scale(1.015,.99); } 50% { transform: rotate(3.2deg) translateY(-1.2px) scale(.985,1.02); } }
+@keyframes gm-inspect { 0% { transform: rotate(3deg); } 35%,70% { transform: rotate(7deg) translateY(1.2px) scale(1.015,.985); } 100% { transform: rotate(1deg); } }
+@keyframes gm-lightbulb { 0% { transform: rotate(2deg); } 26% { transform: translateY(-5px) scale(.94,1.08); } 52% { transform: translateY(1.8px) scale(1.08,.94); } 78% { transform: translateY(-1px) scale(.99,1.02); } 100% { transform: none; } }
+@keyframes gm-nod { 0%,100% { transform: none; } 35% { transform: rotate(1.6deg) translateY(.7px) scale(1.012,.99); } }
+@keyframes gm-cheer { 0% { transform: none; } 30% { transform: translateY(-4px) scale(.965,1.045); } 62% { transform: translateY(1px) scale(1.04,.965); } 100% { transform: none; } }
+@keyframes gm-sympathy { to { transform: rotate(-3deg) translateY(1px); } }
+@keyframes gm-thought { 0%,100% { opacity: .24; transform: translateY(1px) scale(.85); } 50% { opacity: .8; transform: translateY(-1px) scale(1); } }
+@keyframes gm-night { 0%,100% { opacity: .15; transform: translateY(2px); } 50% { opacity: .55; transform: translateY(-1px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .glass-mascot .gm-shell { transition: none; }
+  .glass-mascot[data-mascot-mood] .gm-story,
+  .glass-mascot[data-playful="true"][data-mascot-mood] .gm-story,
+  .glass-mascot[data-mascot-mood] .gm-mouth,
+  .glass-mascot .gm-thought-dots > circle,
+  .glass-mascot .gm-sleep-marks > path { animation: none; }
+  .glass-mascot .gm-spin,
+  .glass-mascot[data-spin="true"]:hover .gm-spin,
+  .glass-mascot[data-mascot-state="speaking"] .gm-mouth { animation: none; }
+}

@@ -42,6 +42,16 @@ test('assistant runtime sends a validated request through the authenticated RAG 
   expect(requests).toEqual([{ path: '/api/agent/chat/stream', method: 'POST', headers: { Accept: 'text/event-stream' }, signal, body: { thread_id: 'stable-thread', module_id: 'rag', messages: [{ type: 'human', content: 'Question' }] } }])
 })
 
+test('review chat sends the selected run ID without a second document upload', async () => {
+  const requests: unknown[] = []
+  const reviewId = '0196f6f8-6600-7000-8000-000000000001'
+  const adapter = createAgentModelAdapter(transport(sse([['end', {}]]), requests), {
+    threadId: `review:${reviewId}:test`, moduleId: 'review_chat', reviewId,
+  })
+  for await (const _ of adapter.run(options()) as AsyncGenerator<ChatModelRunResult>) { void _ }
+  expect(requests).toMatchObject([{ path: '/api/agent/chat/stream', body: { review_id: reviewId, module_id: 'review_chat', thread_id: `review:${reviewId}:test` } }])
+})
+
 test('assistant runtime emits incremental text without losing sources or tool progress', async () => {
   const updates = await results(sse([
     ['token', { content: 'Hello' }],

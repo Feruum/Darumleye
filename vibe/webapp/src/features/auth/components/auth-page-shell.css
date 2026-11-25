@@ -1,0 +1,109 @@
+.auth-mascot-panel {
+  isolation: isolate;
+  background:
+    radial-gradient(ellipse at 53% 39%, rgb(117 73 171 / 58%) 0%, rgb(75 39 122 / 32%) 36%, transparent 72%),
+    linear-gradient(145deg, #3b215e 0%, #2f164f 56%, #201035 100%);
+}
+
+.auth-mascot-panel::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(112deg, rgb(238 214 255 / 7%), transparent 42%);
+  content: '';
+  pointer-events: none;
+}
+
+.auth-mascot-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(0.75rem, 2.2vh, 1.5rem);
+  padding-block: 1.5rem;
+}
+
+.auth-mascot-stage {
+  position: relative;
+  display: grid;
+  width: min(100%, clamp(13rem, 47vh, 29rem));
+  flex-shrink: 0;
+  aspect-ratio: 1;
+  place-items: center;
+  isolation: isolate;
+}
+
+.auth-mascot-halo {
+  position: absolute;
+  inset: -8%;
+  z-index: -2;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 46%, rgb(215 184 255 / 32%) 0%, rgb(154 104 232 / 18%) 29%, transparent 66%);
+  pointer-events: none;
+}
+
+.auth-mascot-orbit {
+  position: absolute;
+  inset: 5%;
+  z-index: -1;
+  border: 1px solid rgb(237 216 255 / 20%);
+  border-radius: 50%;
+  mask-image: linear-gradient(145deg, #000 10%, transparent 53%, #000 99%);
+  pointer-events: none;
+}
+
+.auth-mascot-orbit--inner {
+  inset: 14%;
+  border-color: rgb(237 216 255 / 10%);
+  mask-image: linear-gradient(35deg, transparent 3%, #000 45%, transparent 96%);
+}
+
+.auth-mascot-shadow {
+  position: absolute;
+  right: 17%;
+  bottom: 13%;
+  left: 17%;
+  z-index: -1;
+  height: 13%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgb(13 5 32 / 65%), rgb(40 17 71 / 18%) 52%, transparent 73%);
+  filter: blur(0.75rem);
+  pointer-events: none;
+}
+
+.auth-mascot-character {
+  position: relative;
+  width: 84%;
+  aspect-ratio: 1;
+  filter: drop-shadow(0 1.5rem 1.75rem rgb(20 8 43 / 28%));
+}
+
+.auth-mascot-copy {
+  width: 100%;
+  max-width: 33rem;
+  text-align: center;
+}
+
+.auth-mascot-copy .auth-mascot-heading {
+  font-size: clamp(1.875rem, 2.2vw, 2.625rem);
+  letter-spacing: -0.035em;
+  line-height: 1.12;
+  text-wrap: balance;
+}
+
+@media (max-height: 700px) {
+  .auth-mascot-stage {
+    width: min(100%, clamp(12rem, 40vh, 22rem));
+  }
+
+  .auth-mascot-content {
+    padding-block: 0.75rem;
+  }
+}
+
+.sr-auth { background: var(--glass-canvas); }
+.sr-auth-form { padding: clamp(1rem, 3vw, 2rem); border-radius: 1.5rem; background: var(--glass-surface); border: 1px solid var(--glass-edge); box-shadow: var(--glass-shadow); }
+.auth-mascot-panel { margin: .75rem .75rem .75rem 0; border-radius: 2rem; background: linear-gradient(0deg, rgb(41 16 70 / 74%), transparent 60%), linear-gradient(145deg, rgb(40 16 73 / 86%), rgb(52 26 89 / 42%) 62%, rgb(43 16 78 / 80%)), url('../../../assets/review-glass.webp') 70% center / cover; }
+.auth-mascot-copy .auth-mascot-heading { font-size: clamp(2rem, 3vw, 3.2rem); line-height: 1.04; font-weight: 650; letter-spacing: -.04em; }
+@media (max-width: 1023px) { .sr-auth-form { max-width: 26rem; } }

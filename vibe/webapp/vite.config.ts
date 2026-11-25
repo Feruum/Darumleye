@@ -26,6 +26,12 @@ export default defineConfig({
               priority: 20,
             },
             {
+              name: 'evidence-graph-vendor',
+              includeDependenciesRecursively: false,
+              test: /node_modules[\\/]@xyflow[\\/]/,
+              priority: 15,
+            },
+            {
               name: 'vendor',
               test: /node_modules/,
               priority: 10,

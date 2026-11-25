@@ -19,13 +19,14 @@ export function toAgentMessages(messages: readonly ThreadMessage[]): AgentChatRe
 
 export function createAgentModelAdapter(
   transport: AuthenticatedTransport,
-  { threadId, moduleId }: { threadId: string; moduleId?: string },
+  { threadId, moduleId, reviewId }: { threadId: string; moduleId?: string; reviewId?: string },
 ): ChatModelAdapter {
   return {
     async *run({ messages, abortSignal }) {
       const response = await streamAgentChat(transport, {
         messages: toAgentMessages(messages), thread_id: threadId,
         ...(moduleId ? { module_id: moduleId } : {}),
+        ...(reviewId ? { review_id: reviewId } : {}),
       }, abortSignal)
       let state: ResponseState = { text: '', sources: [], tools: [] }
       for await (const event of iterateAgentEventStream(response, abortSignal)) {

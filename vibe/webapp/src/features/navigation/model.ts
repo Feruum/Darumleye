@@ -5,7 +5,7 @@ import type { UserRole } from '@web-app-demo/contracts'
 // login round-trip whether or not the sidebar links to it. `tests/navigation.test.ts` fails when
 // this table and the router drift apart.
 export const workspaceRoutesByRole = {
-  user: ['/app', '/app/assistant', '/app/profile', '/app/settings'],
+  user: ['/app', '/app/assistant', '/app/chat', '/app/profile', '/app/settings'],
   admin: ['/admin', '/admin/users', '/admin/settings'],
 } as const satisfies Record<UserRole, ReadonlyArray<`/${string}`>>
 
@@ -21,10 +21,11 @@ export type WorkspaceRoutePath = UserRoutePath | AdminRoutePath
 // The sidebar menu is a presentation subset of the workspace routes; the type keeps it one.
 const navigationByRole = {
   user: [
-    { label: 'Home', to: '/app' },
-    { label: 'Agents', to: '/app/assistant' },
-    { label: 'Profile', to: '/app/profile' },
-    { label: 'Settings', to: '/app/settings' },
+    { label: 'Обзор', to: '/app' },
+    { label: 'Проверка ТЗ', to: '/app/assistant' },
+    { label: 'Чат по проверкам', to: '/app/chat' },
+    { label: 'Профиль', to: '/app/profile' },
+    { label: 'Настройки', to: '/app/settings' },
   ],
   admin: [
     { label: 'Dashboard', to: '/admin' },

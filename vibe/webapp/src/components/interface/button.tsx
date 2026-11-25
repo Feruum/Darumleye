@@ -15,6 +15,6 @@ function buttonVariants({ variant = 'default', size = 'default', className }: { 
 
 export function Button({ variant = 'default', size = 'default', asChild = false, className, ...props }: Omit<ComponentProps<typeof ArcButton>, 'variant' | 'size'> & { variant?: Variant; size?: Size; asChild?: boolean }) {
   const classes = cn(size.startsWith('icon') && 'aspect-square px-0', variant === 'link' && 'underline-offset-4 hover:underline', className)
-  if (asChild) return <Slot.Root {...props} data-slot="button" className={buttonVariants({ variant, size, className })} />
-  return <ArcButton {...props} data-slot="button" variant={variants[variant]} size={arcSize(size)} className={classes} />
+  if (asChild) return <Slot.Root {...props} data-slot="button" data-variant={variant} className={buttonVariants({ variant, size, className })} />
+  return <ArcButton {...props} data-slot="button" data-variant={variant} variant={variants[variant]} size={arcSize(size)} className={classes} />
 }

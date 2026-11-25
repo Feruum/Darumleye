@@ -6,6 +6,7 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const sourceRoots = [
   'backend/src',
   'packages/contracts/src',
+  'packages/mascot/src',
   'webapp/src',
   'website/src',
   'mobile/src',

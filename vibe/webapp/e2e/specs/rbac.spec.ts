@@ -13,9 +13,9 @@ test('keeps user and administrator workspaces separate', async ({ browser, page 
   await page.getByRole('button', { name: 'Create Account' }).click()
 
   await expect(page).toHaveURL(/\/app$/)
-  await expect(page.getByRole('link', { name: 'Home' })).toBeVisible()
+  await expect(page.getByTestId('workspace-nav-/app')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Dashboard' })).toHaveCount(0)
-  await page.getByRole('link', { name: 'Profile' }).click()
+  await page.getByTestId('workspace-nav-/app/profile').click()
   await expect(page).toHaveURL(/\/app\/profile$/)
   await page.goto('/admin/users')
   await expect(page).toHaveURL(/\/app$/)
@@ -30,7 +30,7 @@ test('keeps user and administrator workspaces separate', async ({ browser, page 
   await expect(adminPage).toHaveURL(/\/admin$/)
   await expect(adminPage.getByRole('navigation', { name: 'Primary navigation' })).toBeVisible()
   await expect(adminPage.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible()
-  await expect(adminPage.getByRole('link', { name: 'Home' })).toHaveCount(0)
+  await expect(adminPage.getByTestId('workspace-nav-/app')).toHaveCount(0)
   await adminPage.goto('/app/profile')
   await expect(adminPage).toHaveURL(/\/admin$/)
 
@@ -99,7 +99,7 @@ test('promoting a user revokes the old session and opens the admin workspace aft
 
   await expect(page).toHaveURL(/\/admin$/)
   await expect(page.getByRole('link', { name: 'Dashboard' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Home' })).toHaveCount(0)
+  await expect(page.getByTestId('workspace-nav-/app')).toHaveCount(0)
 
   await adminContext.close()
 })

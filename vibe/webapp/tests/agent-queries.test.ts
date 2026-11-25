@@ -6,13 +6,15 @@ import {
   agentMemoriesQueryOptions,
   agentModulesQueryOptions,
   agentQueryKeys,
+  completedReviewsQueryOptions,
+  completedReviewQueryOptions,
 } from '../src/features/agent/queries'
 import { applyAuthenticatedSession, clearAuthenticatedSession } from '../src/features/auth/queries'
 import type { AuthenticatedTransport, HttpRequestOptions } from '../src/platform/api'
 
 test('sign-out removes private agent data and keeps public cache', async () => {
   const client = new QueryClient()
-  const keys = [agentQueryKeys.modules('first'), agentQueryKeys.documents('first'), agentQueryKeys.memories('first')]
+  const keys = [agentQueryKeys.modules('first'), agentQueryKeys.documents('first'), agentQueryKeys.memories('first'), agentQueryKeys.completedReviews('first'), agentQueryKeys.completedReview('first', 'review')]
   for (const key of keys) client.setQueryData(key, { private: 'previous account' })
   client.setQueryData(['public', 'plans'], ['free'])
 
@@ -40,7 +42,7 @@ test('a replacement login removes the previous account agent cache', () => {
 
 test('the next account cannot reuse another owner agent responses', () => {
   const client = new QueryClient()
-  for (const key of [agentQueryKeys.modules, agentQueryKeys.documents, agentQueryKeys.memories]) {
+  for (const key of [agentQueryKeys.modules, agentQueryKeys.documents, agentQueryKeys.memories, agentQueryKeys.completedReviews]) {
     client.setQueryData(key('first'), { private: 'first account' })
     expect(client.getQueryData(key('second'))).toBeUndefined()
   }
@@ -60,8 +62,10 @@ test('agent queries pass cancellation signals to the authenticated transport', a
   await client.fetchQuery(agentModulesQueryOptions(transport, 'owner'))
   await client.fetchQuery(agentDocumentsQueryOptions(transport, 'owner'))
   await client.fetchQuery(agentMemoriesQueryOptions(transport, 'owner'))
+  await client.fetchQuery(completedReviewsQueryOptions(transport, 'owner'))
+  await client.fetchQuery(completedReviewQueryOptions(transport, 'owner', '0196f6f8-6600-7000-8000-000000000002'))
 
-  expect(received.map(({ path }) => path)).toEqual(['/api/agent/modules', '/api/agent/documents', '/api/agent/memories'])
+  expect(received.map(({ path }) => path)).toEqual(['/api/agent/modules', '/api/agent/documents', '/api/agent/memories', '/api/agent/spec-reviews', '/api/agent/spec-reviews/0196f6f8-6600-7000-8000-000000000002'])
   expect(received.every(({ signal }) => signal instanceof AbortSignal)).toBe(true)
   client.clear()
 })

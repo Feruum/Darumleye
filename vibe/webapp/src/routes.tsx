@@ -1,3 +1,4 @@
+import { agentCompletedReviewSchema } from '@web-app-demo/contracts'
 import {
   createRootRoute,
   createRoute,
@@ -62,7 +63,23 @@ const userHomeRoute = createRoute({
 const userAgentRoute = createRoute({
   getParentRoute: () => userWorkspaceRoute,
   path: '/app/assistant',
+  validateSearch: (search: Record<string, unknown>): { newReview?: number; reviewId?: string; view?: 'fix' } => {
+    const review = agentCompletedReviewSchema.shape.id.safeParse(search.reviewId)
+    if (review.success) return search.view === 'fix' ? { reviewId: review.data, view: 'fix' } : { reviewId: review.data }
+    return typeof search.newReview === 'number' && Number.isSafeInteger(search.newReview) && search.newReview > 0
+      ? { newReview: search.newReview } : {}
+  },
   component: lazyRouteComponent(() => import('./pages'), 'UserAgentPage'),
+})
+
+const userChatRoute = createRoute({
+  getParentRoute: () => userWorkspaceRoute,
+  path: '/app/chat',
+  validateSearch: (search: Record<string, unknown>): { reviewId?: string } => {
+    const review = agentCompletedReviewSchema.shape.id.safeParse(search.reviewId)
+    return review.success ? { reviewId: review.data } : {}
+  },
+  component: lazyRouteComponent(() => import('./pages'), 'UserChatPage'),
 })
 
 const userProfileRoute = createRoute({
@@ -110,6 +127,7 @@ const routeTree = rootRoute.addChildren([
   userWorkspaceRoute.addChildren([
     userHomeRoute,
     userAgentRoute,
+    userChatRoute,
     userProfileRoute,
     userSettingsRoute,
   ]),

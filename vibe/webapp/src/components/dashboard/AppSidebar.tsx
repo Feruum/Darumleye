@@ -1,4 +1,5 @@
 import type { UserDto } from '@web-app-demo/contracts'
+import { GlassMascot } from '@web-app-demo/mascot'
 
 import {
   Sidebar,
@@ -34,22 +35,32 @@ export function AppSidebar({
   workspaceLabel: string
 }) {
   return (
-    <Sidebar collapsible="icon" variant="inset">
-      <SidebarHeader>
-        <SidebarMenu>
+    <Sidebar collapsible="icon" variant="floating">
+      <SidebarHeader className="px-3 pt-5 pb-6 group-data-[collapsible=icon]:px-2">
+        <SidebarMenu className="gap-3">
           <SidebarMenuItem>
-            <SidebarMenuButton asChild size="lg" tooltip="web_app_demo">
-              <DashboardLink to={homePath}>
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                  <Typography variant="control">W</Typography>
+            <SidebarMenuButton asChild size="lg" tooltip="Spec Review" className="sr-brand-link px-1 py-0">
+              <DashboardLink to={homePath} aria-label={`Spec Review — ${workspaceLabel}`}>
+                <span aria-hidden className="sr-brand-mascot relative flex size-10 shrink-0 items-center justify-center overflow-hidden group-data-[collapsible=icon]:size-8">
+                  <GlassMascot size={40} />
                 </span>
-                <span className="grid min-w-0 gap-0.5 group-data-[collapsible=icon]:hidden">
-                  <Typography variant="control" truncate>
-                    web_app_demo
+                <span className="grid min-w-0 gap-1 group-data-[collapsible=icon]:hidden">
+                  <Typography as="span" variant="h4" className="sr-brand-wordmark" wrap="nowrap">
+                    <Typography as="strong" variant="emphasis">spec</Typography>{' '}<Typography as="span" variant="bodyXs">review</Typography>
                   </Typography>
-                  <Typography variant="caption" tone="muted" truncate>
-                    {workspaceLabel}
-                  </Typography>
+                  {user.role === 'admin' ? (
+                    <Typography as="span" variant="caption" tone="muted" truncate>{workspaceLabel}</Typography>
+                  ) : (
+                    <Typography as="span" variant="caption" className="sr-brand-partners">
+                      <Typography as="strong" variant="emphasis">bcc</Typography>
+                      <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
+                        <path d="M8.4 3.6a1.8 1.8 0 0 1 3.2 0l6 10.6a1.8 1.8 0 0 1-1.6 2.7H4a1.8 1.8 0 0 1-1.6-2.7L8.4 3.6Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                        <path d="m7.5 12.1 2.5-4.4 2.5 4.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <Typography as="span" variant="caption">hub</Typography>
+                      <Typography as="span" variant="caption" className="sr-brand-partner-divider">× MNU</Typography>
+                    </Typography>
+                  )}
                 </span>
               </DashboardLink>
             </SidebarMenuButton>
@@ -57,9 +68,9 @@ export function AppSidebar({
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={items} />
+        <NavMain items={items} showNewReview={user.role === 'user'} label={user.role === 'admin' ? 'Workspace' : 'Рабочая область'} />
       </SidebarContent>
-      <SidebarFooter>
+      <SidebarFooter className="border-t border-sidebar-border py-3">
         <NavUser
           accountPath={accountPath}
           onLogout={onLogout}

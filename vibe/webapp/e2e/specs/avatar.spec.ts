@@ -27,7 +27,7 @@ async function registerAndOpenProfile(page: Page) {
   await page.getByRole('button', { name: 'Create Account' }).click()
   await expect(page).toHaveURL(/\/app$/)
 
-  await page.getByRole('link', { name: 'Profile' }).click()
+  await page.getByTestId('workspace-nav-/app/profile').click()
   await expect(page).toHaveURL(/\/app\/profile$/)
   await expect(page.getByRole('heading', { level: 1, name: 'Profile' })).toBeVisible()
   await expect(page.getByTestId('avatar-fallback')).toBeVisible()

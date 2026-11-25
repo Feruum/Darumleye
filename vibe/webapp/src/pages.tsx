@@ -8,7 +8,7 @@ import {
   SessionLoadingSection,
 } from '@/components/WebRouteSections'
 import { WorkspaceShell } from '@/components/WorkspaceShell'
-import { AgentWorkspace } from '@/features/agent'
+import { AgentWorkspace, ReviewChatWorkspace, ReviewRunIndicator, ReviewRunProvider } from '@/features/agent'
 import { AdminDashboard, AdminSettings, AdminUsers } from '@/features/admin'
 import {
   AuthPageShell,
@@ -98,6 +98,11 @@ export function UserAgentPage() {
   return <AgentWorkspace />
 }
 
+export function UserChatPage() {
+  useWorkspaceUser('user')
+  return <ReviewChatWorkspace />
+}
+
 export function UserProfilePage() {
   const user = useWorkspaceUser('user')
   return <UserProfile user={user} />
@@ -158,11 +163,11 @@ function WorkspaceRoute({ role }: { role: UserRole }) {
     return <HrefRedirect href={homePathForRole(auth.user.role)} />
   }
 
-  return (
-    <WorkspaceShell onLogout={auth.logout} user={auth.user}>
-      <Outlet />
-    </WorkspaceShell>
-  )
+  if (role === 'user') return <ReviewRunProvider key={auth.user.id} ownerId={auth.user.id}>
+    <WorkspaceShell onLogout={auth.logout} user={auth.user} headerAction={<ReviewRunIndicator />}><Outlet /></WorkspaceShell>
+  </ReviewRunProvider>
+
+  return <WorkspaceShell onLogout={auth.logout} user={auth.user}><Outlet /></WorkspaceShell>
 }
 
 function GuestAuthPage({

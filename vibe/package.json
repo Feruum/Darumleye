@@ -22,7 +22,8 @@
     "fast-uri": "^3.1.8",
     "find-my-way": "^9.7.0",
     "devalue": "^5.9.1",
-    "hono": "^4.13.5",
+    "glob": "^14.0.6",
+    "hono": "^4.13.16",
     "http-cache-semantics": "^4.3.0",
     "ip-address": "^10.7.3",
     "js-yaml": "^4.3.2",
@@ -32,7 +33,7 @@
     "postcss-selector-parser": "^7.1.6",
     "proxy-addr": "^2.0.8",
     "qs": "^6.16.0",
-    "seroval": "^1.6.8",
+    "seroval": "~1.6.11",
     "sharp": "^0.35.5",
     "smol-toml": "^1.7.1",
     "source-map-js": "^1.2.2",
@@ -42,6 +43,7 @@
     "yaml": "^2.9.0"
   },
   "scripts": {
+    "review": "node scripts/review.mjs",
     "datathon:setup": "node scripts/datathon.mjs setup",
     "datathon:test": "node scripts/datathon.mjs test",
     "datathon:demo": "node scripts/datathon.mjs demo",
@@ -101,10 +103,10 @@
     "e2e:webapp:s3": "bun scripts/storage-local.mjs e2e"
   },
   "devDependencies": {
-    "@storybook/addon-a11y": "10.5.10",
-    "@storybook/addon-docs": "10.5.10",
-    "@storybook/react-vite": "10.5.10",
-    "storybook": "10.5.10",
+    "@storybook/addon-a11y": "10.6.9",
+    "@storybook/addon-docs": "10.6.9",
+    "@storybook/react-vite": "10.6.9",
+    "storybook": "10.6.9",
     "turbo": "2.11.3"
   }
 }
