@@ -1,11 +1,11 @@
 from typing import List, Tuple
-from functools import lru_cache
 
 import httpx
 import structlog
 from langchain_core.documents import Document
 
 from agent.config.settings import settings
+from agent.retrieval.nace_reranker import NaceReranker
 from agent.utils.observability import get_tracer
 
 tracer = get_tracer(__name__)
@@ -79,8 +79,14 @@ class Reranker:
                 return [(doc, 0.0) for doc in documents[:k]]
 
 
-@lru_cache(maxsize=1)
-def get_reranker() -> Reranker:
+def get_reranker() -> Reranker | NaceReranker:
+    if settings.rerank_provider == "nace":
+        return NaceReranker(
+            api_key=settings.nace_api_key,
+            model=settings.nace_model,
+            top_n=settings.retrieval_top_k_after_rerank,
+            timeout=settings.nace_timeout_seconds,
+        )
     return Reranker()
 
 

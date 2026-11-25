@@ -2,6 +2,7 @@
 
 from agent.modules.base import AgentModule
 from agent.modules.rag import RAG_MODULE
+from agent.modules.review_chat import REVIEW_CHAT_MODULE
 
 
 class UnknownModuleError(ValueError):
@@ -10,7 +11,7 @@ class UnknownModuleError(ValueError):
 
 def get_modules() -> tuple[AgentModule, ...]:
     """Return enabled module definitions. Register new modules in this list."""
-    return (RAG_MODULE,)
+    return (RAG_MODULE, REVIEW_CHAT_MODULE)
 
 
 def module_catalog() -> list[dict[str, str]]:

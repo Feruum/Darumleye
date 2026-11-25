@@ -26,6 +26,7 @@ LABEL org.opencontainers.image.version="${SERVICE_VERSION}" \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    poppler-utils tesseract-ocr tesseract-ocr-rus tesseract-ocr-kaz tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/.venv /app/.venv

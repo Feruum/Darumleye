@@ -3,6 +3,7 @@
 import asyncio
 import json
 from typing import Literal, NotRequired
+from uuid import uuid4
 
 import structlog
 from langchain_core.messages import (
@@ -58,6 +59,7 @@ def _strip_reasoning_from_message(message):
 
 class AgentState(MessagesState):
     user_id: NotRequired[str]
+    review_id: NotRequired[str]
 
 
 def _count_tool_rounds(messages) -> int:
@@ -88,8 +90,35 @@ def create_workflow(llm, module: AgentModule | None = None) -> StateGraph:
             raise RuntimeError("No agent modules are enabled")
         module = next((item for item in modules if item.default_for_auto), modules[0])
     tools = list(module.tools)
-    llm_with_tools = llm.bind_tools(tools, tool_choice="auto") if tools else llm
+    review_chat = module.id == "review_chat"
+    llm_with_tools = llm.bind_tools(tools, tool_choice="auto") if tools and not review_chat else llm
     tool_map = {tool.name: tool for tool in tools}
+
+    async def review_prompt(state: AgentState, question: str) -> tuple[str, list[dict]]:
+        """Resolve the selected record before the model call, not through a model tool round."""
+        writer = get_stream_writer()
+        call_id = str(uuid4())
+        writer({"type": "tool_call_start", "tool": "search_user_review", "id": call_id})
+        try:
+            payload = json.loads(await tool_map["search_user_review"].ainvoke({
+                "query": question, "user_id": state.get("user_id", ""), "review_id": state.get("review_id", ""),
+            }))
+            writer({"type": "tool_call_end", "tool": "search_user_review", "id": call_id, "status": "ok"})
+        except Exception:
+            writer({"type": "tool_call_end", "tool": "search_user_review", "id": call_id, "status": "error", "error": "Не удалось прочитать проверку"})
+            raise
+        notes = []
+        if "search_user_memory" in tool_map:
+            try:
+                memory = json.loads(await tool_map["search_user_memory"].ainvoke({
+                    "query": question, "user_id": state.get("user_id", ""),
+                }))
+                notes = memory.get("notes", [])
+            except Exception:
+                logger.warning("review_chat_notes_unavailable")
+        return (json.dumps({"untrusted_review_evidence": payload.get("context", ""),
+                            "untrusted_preferences": notes, "question": question}, ensure_ascii=False),
+                payload.get("sources", []))
 
     async def tools_node(state: AgentState) -> dict:
         writer = get_stream_writer()
@@ -106,8 +135,11 @@ def create_workflow(llm, module: AgentModule | None = None) -> StateGraph:
             arguments = dict(call.get("args", {}) or {})
             call_id = call.get("id", "")
             trusted_name = (module.trusted_tool_arguments or {}).get(name)
-            if trusted_name:
+            if isinstance(trusted_name, str):
                 arguments[trusted_name] = state.get("user_id", "")
+            elif trusted_name:
+                for argument in trusted_name:
+                    arguments[argument] = state.get(argument, "")
             writer({"type": "tool_call_start", "tool": name, "id": call_id})
 
             tool = tool_map.get(name)
@@ -161,6 +193,21 @@ def create_workflow(llm, module: AgentModule | None = None) -> StateGraph:
                 if not isinstance(message, SystemMessage)
             ]
             messages = messages[-settings.max_history_messages :]
+            if review_chat:
+                question = next(message.content for message in reversed(messages) if isinstance(message, HumanMessage))
+                prompt, sources = await review_prompt(state, str(question))
+                final_messages = [SystemMessage(content=module.instructions), *messages[:-1], HumanMessage(content=prompt)]
+                response = await llm.ainvoke(final_messages, response_format={"type": "json_object"})
+                reply = json.loads(response.content)
+                if not isinstance(reply, dict) or not isinstance(reply.get("answer"), str) or not reply["answer"].strip():
+                    raise ValueError("Review chat returned an invalid answer")
+                cited = reply.get("citations", [])
+                if not isinstance(cited, list):
+                    cited = []
+                selected = [source for source in sources if source.get("id") in cited]
+                if selected:
+                    get_stream_writer()({"type": "sources", "sources": selected})
+                return {"messages": [response.model_copy(update={"content": reply["answer"]})]}
             final_messages = [SystemMessage(content=module.instructions), *messages]
             force_text = _count_tool_rounds(state["messages"]) >= settings.max_tool_rounds
             if force_text:
@@ -172,6 +219,10 @@ def create_workflow(llm, module: AgentModule | None = None) -> StateGraph:
 
     workflow = StateGraph(AgentState)
     workflow.add_node("agent", agent_node)
+    if review_chat:
+        workflow.add_edge(START, "agent")
+        workflow.add_edge("agent", END)
+        return workflow
     if tools:
         workflow.add_node("tools", tools_node)
     workflow.add_edge(START, "agent")

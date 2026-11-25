@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from typing import Any
 
 from opentelemetry import metrics, trace
@@ -17,9 +18,17 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.sampling import ALWAYS_ON
 
 from agent.build_info import GIT_COMMIT, SERVICE_VERSION
-from agent.config.settings import settings
+from agent.config.settings import Settings, settings
+from agent.utils.review_telemetry import (
+    LangfuseReviewExporter,
+    should_export_to_langfuse,
+)
+import structlog
 
 _configured = False
+_trace_provider: TracerProvider | None = None
+_langfuse_client: Any | None = None
+logger = structlog.get_logger(__name__)
 
 meter = metrics.get_meter("hackathon.agent")
 http_requests = meter.create_counter(
@@ -64,14 +73,57 @@ stream_errors = meter.create_counter(
 )
 
 
-def configure_observability() -> None:
-    """Send traces and metrics to the internal OTLP Collector gateway."""
-    global _configured
-    if (
-        _configured
-        or os.getenv("OTEL_SDK_DISABLED", "false").lower() == "true"
-        or not settings.otlp_endpoint
-    ):
+def configure_langfuse(
+    provider: TracerProvider,
+    config: Settings,
+    *,
+    exporter: LangfuseReviewExporter | None = None,
+):
+    """Attach the official SDK to the shared provider, without automatic LLM capture."""
+    from langfuse import Langfuse
+
+    sink = exporter or LangfuseReviewExporter(
+        config.langfuse_base_url,
+        config.langfuse_public_key,
+        config.langfuse_secret_key,
+    )
+    try:
+        return Langfuse(
+            public_key=config.langfuse_public_key,
+            secret_key=config.langfuse_secret_key,
+            base_url=config.langfuse_base_url,
+            tracer_provider=provider,
+            should_export_span=should_export_to_langfuse,
+            span_exporter=sink,
+            timeout=3,
+            flush_at=512,
+            flush_interval=1.0,
+            sample_rate=1.0,
+            media_upload_thread_count=1,
+        )
+    except Exception:
+        sink.shutdown()
+        raise
+    finally:
+        # SDK debug logs can print full internal spans; this service's
+        # diagnostic contract is strictly technical metadata.
+        logging.getLogger("langfuse").setLevel(logging.WARNING)
+
+
+def configure_observability(configuration: Settings | None = None) -> None:
+    """One OTel provider, with independent optional infrastructure and LLM sinks."""
+    global _configured, _trace_provider, _langfuse_client
+    config = configuration or settings
+    if _configured or os.getenv("OTEL_SDK_DISABLED", "false").lower() == "true":
+        return
+    send_to_langfuse = all(
+        (
+            config.langfuse_base_url,
+            config.langfuse_public_key,
+            config.langfuse_secret_key,
+        )
+    )
+    if not config.otlp_endpoint and not send_to_langfuse:
         return
 
     resource = Resource.create(
@@ -79,35 +131,58 @@ def configure_observability() -> None:
             "service.name": "agent",
             "service.version": SERVICE_VERSION,
             "service.instance.id": os.getenv("HOSTNAME", "unknown"),
-            "deployment.environment.name": settings.environment,
+            "deployment.environment.name": config.environment,
             "vcs.ref.head.revision": GIT_COMMIT,
         }
     )
-
-    # Sampling is performed at the Collector so errors and slow traces can be
-    # retained after their final status and duration are known.
-    trace_provider = TracerProvider(resource=resource, sampler=ALWAYS_ON)
-    trace_provider.add_span_processor(
-        BatchSpanProcessor(
-            OTLPSpanExporter(
-                endpoint=settings.otlp_endpoint,
-                insecure=settings.otlp_insecure,
+    current = trace.get_tracer_provider()
+    provider = (
+        current
+        if isinstance(current, TracerProvider)
+        else TracerProvider(resource=resource, sampler=ALWAYS_ON)
+    )
+    if config.otlp_endpoint:
+        try:
+            provider.add_span_processor(
+                BatchSpanProcessor(
+                    OTLPSpanExporter(
+                        endpoint=config.otlp_endpoint,
+                        insecure=config.otlp_insecure,
+                    )
+                )
             )
-        )
-    )
-    trace.set_tracer_provider(trace_provider)
-
-    metric_reader = PeriodicExportingMetricReader(
-        OTLPMetricExporter(
-            endpoint=settings.otlp_endpoint,
-            insecure=settings.otlp_insecure,
-        ),
-        export_interval_millis=30_000,
-    )
-    metrics.set_meter_provider(
-        MeterProvider(resource=resource, metric_readers=[metric_reader])
-    )
+            metric_reader = PeriodicExportingMetricReader(
+                OTLPMetricExporter(
+                    endpoint=config.otlp_endpoint, insecure=config.otlp_insecure
+                ),
+                export_interval_millis=30_000,
+            )
+            metrics.set_meter_provider(
+                MeterProvider(resource=resource, metric_readers=[metric_reader])
+            )
+        except Exception as error:
+            logger.warning("otel_configuration_failed", error_type=type(error).__name__)
+    if send_to_langfuse:
+        try:
+            _langfuse_client = configure_langfuse(provider, config)
+        except Exception as error:
+            # Optional telemetry must not prevent application startup or CLI review.
+            logger.warning(
+                "langfuse_configuration_failed", error_type=type(error).__name__
+            )
+    if provider is not current:
+        trace.set_tracer_provider(provider)
+    _trace_provider = provider
     _configured = True
+
+
+def flush_observability() -> None:
+    """Best-effort CLI export before the process exits; no server request wait."""
+    if _trace_provider is not None:
+        try:
+            _trace_provider.force_flush(timeout_millis=3500)
+        except Exception as error:
+            logger.warning("otel_flush_failed", error_type=type(error).__name__)
 
 
 def instrument_fastapi(app: Any) -> None:

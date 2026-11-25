@@ -4,12 +4,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import (
+    CheckConstraint,
     Column,
     DateTime,
+    Float,
+    Index,
     Integer,
     JSON,
     LargeBinary,
     String,
+    UniqueConstraint,
     Uuid,
 )
 from datetime import UTC, datetime
@@ -64,6 +68,38 @@ class CheckpointModel(Base):
     metadata_data = Column(LargeBinary, nullable=False)
 
 
+class ReviewJobModel(Base):
+    """Durable owner-scoped specification job; input is retained only while active."""
+
+    __tablename__ = "agent_spec_review_jobs"
+    __table_args__ = (
+        UniqueConstraint("active_owner", name="uq_spec_review_job_owner"),
+        UniqueConstraint("active_slot", name="uq_spec_review_job_slot"),
+        CheckConstraint("active_slot IS NULL OR active_slot BETWEEN 1 AND 2", name="ck_spec_review_job_slot"),
+        CheckConstraint("status IN ('pending','running','completed','failed','cancelled')", name="ck_spec_review_job_status"),
+        Index("ix_spec_review_jobs_status_lease", "status", "lease_until"),
+        Index("ix_spec_review_jobs_owner", "owner_id"),
+    )
+
+    id = Column(String(36), primary_key=True)
+    owner_id = Column(String(255), nullable=False)
+    filename = Column(String(512), nullable=False)
+    status = Column(String(16), nullable=False)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    deadline_at = Column(DateTime(timezone=True), nullable=False)
+    remaining_seconds = Column(Float, nullable=False)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    active_owner = Column(String(255), nullable=True)
+    active_slot = Column(Integer, nullable=True)
+    lease_token = Column(String(36), nullable=True)
+    lease_until = Column(DateTime(timezone=True), nullable=True)
+    payload_metadata = Column(JSON, nullable=True)
+    primary_bytes = Column(LargeBinary, nullable=True)
+    reference_bytes = Column(LargeBinary, nullable=True)
+    error_code = Column(String(64), nullable=True)
+    error_message = Column(String(2048), nullable=True)
+
+
 class CheckpointWriteModel(Base):
     """Pending LangGraph writes, scoped to the same owner and thread key."""
 
@@ -109,6 +145,7 @@ async def initialize_database() -> None:
     # Import registers the ownership model in shared SQLAlchemy metadata.
     from agent.infrastructure.thread_ownership import ThreadOwnership  # noqa: F401
     from agent.memory.notes import MemoryNote  # noqa: F401
+    from agent.services.review_archive import CompletedReview  # noqa: F401
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)

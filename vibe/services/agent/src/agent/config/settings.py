@@ -1,6 +1,8 @@
 """Configuration for the local, Bun-proxied agent service."""
 
-from pydantic import Field, model_validator
+from typing import Literal
+
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,6 +18,10 @@ class Settings(BaseSettings):
     environment: str = "development"
     debug: bool = False
     request_timeout: int = 60
+    spec_review_timeout_seconds: int = Field(default=230, ge=30, le=240)
+    spec_review_large_timeout_seconds: int = Field(default=900, ge=30, le=900)
+    spec_review_concurrency: int = Field(default=3, ge=1, le=3)
+    spec_review_use_nace: bool = False
     max_history_messages: int = 15
 
     llm_base_url: str = ""
@@ -31,11 +37,17 @@ class Settings(BaseSettings):
     embedding_dimensions: int = 1024
 
     use_reranker: bool = False
+    rerank_provider: Literal["generic", "nace"] = "generic"
     use_hybrid_search: bool = True
     retrieval_lexical_max_chunks: int = Field(default=2000, ge=1, le=10000)
     rerank_base_url: str = ""
     rerank_api_key: str = ""
     rerank_model: str = "reranker"
+    nace_api_key: str = Field(
+        default="", validation_alias=AliasChoices("NACE_API_KEY", "AGENT_NACE_API_KEY")
+    )
+    nace_model: str = "drex-latest"
+    nace_timeout_seconds: float = Field(default=8.0, ge=1.0, le=20.0)
     retrieval_top_k_initial: int = 8
     retrieval_top_k_after_rerank: int = 4
     tool_max_concurrency: int = 4
@@ -51,7 +63,9 @@ class Settings(BaseSettings):
     ingestion_max_file_bytes: int = 25 * 1024 * 1024
 
     database_url: str = "postgresql+asyncpg://postgres:postgres@postgres:5432/agent"
-    postgres_url: str = "postgresql://postgres:postgres@postgres:5432/agent?sslmode=disable"
+    postgres_url: str = (
+        "postgresql://postgres:postgres@postgres:5432/agent?sslmode=disable"
+    )
 
     api_key: str = ""
     api_keys: str = ""
@@ -67,6 +81,11 @@ class Settings(BaseSettings):
     stream_lease_refresh_seconds: int = 30
     redis_url: str = ""
 
+    # Opt-in telemetry; keys belong to the server/CLI, never the browser.
+    langfuse_base_url: str = ""
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+
     otlp_endpoint: str = ""
     otlp_insecure: bool = True
     otel_trace_sample_ratio: float = 0.0
@@ -76,7 +95,9 @@ class Settings(BaseSettings):
         if self.knowledge_backend != "chroma":
             raise ValueError("AGENT_KNOWLEDGE_BACKEND must be 'chroma'")
         if self.environment not in {"development", "test"}:
-            raise ValueError("This starter agent service only supports local environments")
+            raise ValueError(
+                "This starter agent service only supports local environments"
+            )
         if not 1 <= self.stream_global_limit <= 100:
             raise ValueError("stream_global_limit must be between 1 and 100")
         if not 1 <= self.stream_per_user_limit <= self.stream_global_limit:
@@ -94,9 +115,7 @@ class Settings(BaseSettings):
 
     def get_agent_api_keys(self) -> list[str]:
         values = [self.api_key.strip()] if self.api_key.strip() else []
-        values.extend(
-            key.strip() for key in self.api_keys.split(",") if key.strip()
-        )
+        values.extend(key.strip() for key in self.api_keys.split(",") if key.strip())
         return list(dict.fromkeys(values))
 
     def get_model_info(self, model: str | None = None) -> dict:

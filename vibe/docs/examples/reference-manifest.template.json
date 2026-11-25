@@ -1,0 +1,74 @@
+[
+  {
+    "category": "quality_standard",
+    "title": "ISO/IEC/IEEE 29148:2018 — инженерия требований",
+    "issuer": "ISO/IEC/IEEE",
+    "version": "2018, разрешённый фрагмент",
+    "scope": "Выбранные характеристики качества требований",
+    "source_url": "https://www.iso.org/standard/72089.html",
+    "path": "references/iso-29148-excerpt.pdf"
+  },
+  {
+    "category": "bank_policy",
+    "title": "Внутренний регламент подготовки ТЗ — заменить действительным названием",
+    "issuer": "Указать банк или подразделение",
+    "version": "Уточнить редакцию утверждённого документа",
+    "scope": "Применимые правила подготовки и согласования ТЗ",
+    "source_url": null,
+    "path": "references/bank-spec-policy.pdf"
+  },
+  {
+    "category": "api_testing",
+    "title": "Внутренний стандарт API и тестирования — заменить действительным названием",
+    "issuer": "Указать владельца регламента",
+    "version": "Уточнить редакцию утверждённого документа",
+    "scope": "Применимые правила API, тестирования и приёмки",
+    "source_url": null,
+    "path": "references/bank-api-and-qa.pdf"
+  },
+  {
+    "category": "api_testing",
+    "title": "OpenAPI Specification 3.1.1 — Operation Object and Responses",
+    "issuer": "OpenAPI Initiative",
+    "version": "3.1.1",
+    "scope": "Selected sections; only if this API version is applicable",
+    "source_url": "https://spec.openapis.org/oas/v3.1.1.html",
+    "path": "../references/openapi-3.1.1-api-excerpt.md"
+  },
+  {
+    "category": "payments_data",
+    "title": "Закон РК о платежах и платежных системах, № 11-VI",
+    "issuer": "Парламент Республики Казахстан",
+    "version": "Уточнить действующую редакцию в скачанном документе",
+    "scope": "Выбранные применимые положения о платежах",
+    "source_url": "https://adilet.zan.kz/rus/docs/Z1600000011",
+    "path": "references/payments-law-excerpt.pdf"
+  },
+  {
+    "category": "payments_data",
+    "title": "Закон РК о персональных данных и их защите, № 94-V",
+    "issuer": "Парламент Республики Казахстан",
+    "version": "Уточнить действующую редакцию в скачанном документе",
+    "scope": "Выбранные применимые положения о персональных данных",
+    "source_url": "https://old.adilet.zan.kz/rus/docs/Z1300000094",
+    "path": "references/personal-data-law-excerpt.pdf"
+  },
+  {
+    "category": "security_regulation",
+    "title": "Требования к обеспечению информационной безопасности в финансовой сфере, № 38336",
+    "issuer": "Агентство РК по регулированию и развитию финансового рынка",
+    "version": "Уточнить действующую редакцию в скачанном документе",
+    "scope": "Выбранные применимые положения об информационной безопасности",
+    "source_url": "https://old.adilet.zan.kz/rus/docs/V2600038336",
+    "path": "references/financial-security-excerpt.pdf"
+  },
+  {
+    "category": "security_regulation",
+    "title": "Требования к непрерывности работы цифровой инфраструктуры, № 38303",
+    "issuer": "Агентство РК по регулированию и развитию финансового рынка",
+    "version": "Уточнить действующую редакцию в скачанном документе",
+    "scope": "Выбранные применимые положения о непрерывности",
+    "source_url": "https://old.adilet.zan.kz/rus/docs/V2600038303",
+    "path": "references/financial-continuity-excerpt.pdf"
+  }
+]

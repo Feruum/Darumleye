@@ -2,7 +2,6 @@
 
 import json
 
-from langchain_core.documents import Document
 from langchain_core.tools import tool
 
 from agent.config.settings import settings

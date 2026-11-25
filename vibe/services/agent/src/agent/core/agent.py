@@ -31,6 +31,9 @@ class Agent:
             max_tokens=settings.llm_max_tokens,
             timeout=settings.llm_timeout_seconds,
             max_retries=settings.llm_max_retries,
+            # The configured provider reliably returns non-streaming review responses.
+            # Review chat grounds its single call before generation and sends the final text as SSE.
+            disable_streaming=self.module.id == "review_chat",
         )
         self.workflow_builder = create_workflow(self.llm, self.module)
         self.workflow = None
@@ -59,13 +62,15 @@ class Agent:
         message: str,
         thread_id: str,
         user_id: str,
+        review_id: str | None = None,
     ) -> AsyncGenerator[dict, None]:
         with tracer.start_as_current_span("agent_astream"):
             config = self._thread_config(thread_id, user_id)
             async for chunk in self.workflow.astream(
-                {"messages": [HumanMessage(content=message)], "user_id": user_id},
+                {"messages": [HumanMessage(content=message)], "user_id": user_id,
+                 **({"review_id": review_id} if review_id else {})},
                 config,
-                stream_mode=["updates", "custom", "messages"],
+                stream_mode=["updates", "custom"] if self.module.id == "review_chat" else ["updates", "custom", "messages"],
             ):
                 yield chunk
 

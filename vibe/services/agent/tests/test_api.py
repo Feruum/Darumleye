@@ -43,3 +43,52 @@ def test_sse_uses_named_events_and_json_data():
     assert _sse("token", {"content": "ответ"}) == (
         'event: token\ndata: {"content": "ответ"}\n\n'
     )
+
+
+def test_silent_model_yields_keepalives_without_cancelling_pending_chunk():
+    import asyncio
+    from agent.routes.agent import _with_keepalive
+
+    async def run():
+        async def chunks():
+            await asyncio.sleep(.03)
+            yield ("custom", {"type": "sources"})
+        return [chunk async for chunk in _with_keepalive(chunks(), interval=.005)]
+
+    events = asyncio.run(run())
+    assert events[0] is None
+    assert events[-1] == ("custom", {"type": "sources"})
+    assert events.count(("custom", {"type": "sources"})) == 1
+
+
+def test_review_chat_stream_sends_final_model_message_and_source():
+    import asyncio
+    from types import SimpleNamespace
+    from langchain_core.messages import AIMessage
+    from agent.routes.agent import _stream_response
+
+    async def run():
+        class Lease:
+            released = False
+
+            async def heartbeat(self, lost):
+                await asyncio.Future()
+
+            async def release(self):
+                self.released = True
+
+        async def astream(*args, **kwargs):
+            yield ("custom", {"type": "sources", "sources": [{"filename": "spec.txt"}]})
+            yield ("updates", {"agent": {"messages": [AIMessage(content="Ответ на основе ТЗ.")]}})
+
+        lease = Lease()
+        agent = SimpleNamespace(module=SimpleNamespace(id="review_chat"), model_name="fixture", astream=astream)
+        response = await _stream_response(agent, "Question", "thread", "owner", lease, "review")
+        body = "".join([frame async for frame in response.body_iterator])
+        assert lease.released
+        return body
+
+    body = asyncio.run(run())
+    assert 'event: source' in body and 'spec.txt' in body
+    assert 'event: token' in body and 'Ответ на основе ТЗ.' in body
+    assert 'event: end' in body and 'event: error' not in body

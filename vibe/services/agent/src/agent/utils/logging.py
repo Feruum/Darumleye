@@ -62,7 +62,10 @@ def configure_logging(level: str = "INFO"):
         ),
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(),
-        cache_logger_on_first_use=True,
+        # CLI temporarily installs an allowlisted progress processor. Keep
+        # existing logger proxies configurable so a reused process cannot
+        # bypass that processor and write raw logs into report stdout.
+        cache_logger_on_first_use=False,
     )
 
 

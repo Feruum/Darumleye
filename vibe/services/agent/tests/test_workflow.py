@@ -98,3 +98,64 @@ async def test_model_cannot_override_trusted_tool_user_id():
 
     assert result["messages"][-1].content == "done"
     assert captured_user_ids == ["trusted-user"]
+
+
+@pytest.mark.asyncio
+async def test_review_chat_tool_uses_only_trusted_selected_review_and_owner():
+    captured = []
+
+    @tool
+    def record_review(user_id: str = "", review_id: str = "") -> str:
+        """Record the selected review and owner for this test."""
+        captured.append((user_id, review_id))
+        return "ok"
+
+    module = AgentModule(
+        id="test", name="Test", description="Trust boundary", instructions="Use the tool.",
+        tools=(record_review,), trusted_tool_arguments={"record_review": ("user_id", "review_id")},
+    )
+    llm = MagicMock()
+    llm.bind_tools.return_value = llm
+    llm.ainvoke = AsyncMock(side_effect=[
+        AIMessage(content="", tool_calls=[{"name": "record_review", "args": {
+            "user_id": "wrong", "review_id": "wrong"}, "id": "call-1"}]),
+        AIMessage(content="done"),
+    ])
+    await create_workflow(llm, module).compile().ainvoke({
+        "messages": [HumanMessage(content="Question")], "user_id": "owner", "review_id": "selected",
+    })
+    assert captured == [("owner", "selected")]
+
+
+@pytest.mark.asyncio
+async def test_review_chat_prefetches_evidence_without_a_model_tool_round_trip():
+    calls = []
+
+    @tool
+    async def search_user_review(query: str, user_id: str = "", review_id: str = "") -> str:
+        """Retrieve the selected review."""
+        calls.append((query, user_id, review_id))
+        return '{"context":"Original line 9: 100000", "sources":[{"id":"S1","filename":"requirements.txt"},{"id":"S2","filename":"unused.txt"}]}'
+
+    module = AgentModule(id="review_chat", name="Review", description="Review", instructions="Use evidence.", tools=(search_user_review,))
+    llm = MagicMock()
+    llm.bind_tools.return_value = llm
+    llm.ainvoke = AsyncMock(return_value=AIMessage(content='{"answer":"100000","citations":["S1","unknown"]}'))
+    events = []
+    graph = create_workflow(llm, module).compile()
+    async for event in graph.astream({"messages": [HumanMessage(content="What is the limit?")],
+                                     "user_id": "owner", "review_id": "selected"},
+                                    stream_mode=["custom", "updates"]):
+        events.append(event)
+    assert calls == [("What is the limit?", "owner", "selected")]
+    assert llm.ainvoke.await_count == 1
+    assert "Original line 9: 100000" in llm.ainvoke.await_args.args[0][-1].content
+    assert not llm.bind_tools.called
+    assert [data["sources"] for mode, data in events if mode == "custom" and data.get("type") == "sources"] == [[{"id": "S1", "filename": "requirements.txt"}]]
+
+    llm.ainvoke = AsyncMock(return_value=AIMessage(content='{"answer":"Уточните вопрос.","citations":[]}'))
+    clarification_events = []
+    async for event in create_workflow(llm, module).compile().astream({"messages": [HumanMessage(content="ыфвфы")],
+            "user_id": "owner", "review_id": "selected"}, stream_mode=["custom", "updates"]):
+        clarification_events.append(event)
+    assert not any(mode == "custom" and data.get("type") == "sources" for mode, data in clarification_events)

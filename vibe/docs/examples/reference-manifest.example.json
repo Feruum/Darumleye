@@ -1,0 +1,47 @@
+[
+  {
+    "category": "quality_standard",
+    "title": "Учебная рубрика качества требований",
+    "issuer": "Вымышленная учебная организация (демонстрация)",
+    "version": "Синтетический пример 1.0",
+    "scope": "Только демонстрационное ТЗ оплаты заказа; не нормативный акт и не документ BCC",
+    "source_url": null,
+    "path": "synthetic-references/quality.txt"
+  },
+  {
+    "category": "bank_policy",
+    "title": "Учебный регламент подготовки ТЗ",
+    "issuer": "Вымышленная учебная организация (демонстрация)",
+    "version": "Синтетический пример 1.0",
+    "scope": "Только демонстрационное ТЗ оплаты заказа; не нормативный акт и не документ BCC",
+    "source_url": null,
+    "path": "synthetic-references/bank-policy.txt"
+  },
+  {
+    "category": "api_testing",
+    "title": "Учебные стандарты API и тестирования",
+    "issuer": "Вымышленная учебная организация (демонстрация)",
+    "version": "Синтетический пример 1.0",
+    "scope": "Только демонстрационное ТЗ оплаты заказа; не нормативный акт и не документ BCC",
+    "source_url": null,
+    "path": "synthetic-references/api-qa.txt"
+  },
+  {
+    "category": "payments_data",
+    "title": "Учебные правила платежей и данных",
+    "issuer": "Вымышленная учебная организация (демонстрация)",
+    "version": "Синтетический пример 1.0",
+    "scope": "Только демонстрационное ТЗ оплаты заказа; не нормативный акт и не документ BCC",
+    "source_url": null,
+    "path": "synthetic-references/payments-data.txt"
+  },
+  {
+    "category": "security_regulation",
+    "title": "Учебная политика безопасности",
+    "issuer": "Вымышленная учебная организация (демонстрация)",
+    "version": "Синтетический пример 1.0",
+    "scope": "Только демонстрационное ТЗ оплаты заказа; не нормативный акт и не документ BCC",
+    "source_url": null,
+    "path": "synthetic-references/security.txt"
+  }
+]

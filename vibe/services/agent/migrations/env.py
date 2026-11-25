@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from agent.config.settings import settings
 from agent.infrastructure.database import Base, normalize_asyncpg_url
 from agent.infrastructure.thread_ownership import ThreadOwnership  # noqa: F401
+from agent.services.review_archive import CompletedReview  # noqa: F401
 
 config = context.config
 database_url, connect_args = normalize_asyncpg_url(settings.database_url)

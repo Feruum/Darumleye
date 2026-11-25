@@ -13,7 +13,7 @@ class AgentModule:
     tools: tuple[Any, ...] = ()
     routing_keywords: tuple[str, ...] = ()
     default_for_auto: bool = False
-    trusted_tool_arguments: dict[str, str] | None = None
+    trusted_tool_arguments: dict[str, str | tuple[str, ...]] | None = None
     source_tools: tuple[str, ...] = ()
 
 
