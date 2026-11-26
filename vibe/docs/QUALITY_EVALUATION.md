@@ -139,6 +139,8 @@ uv run --project vibe/services/agent --frozen python vibe/services/agent/scripts
   --env-file .env --repetitions 1 --timeout-seconds 900 --output-dir .artifacts/review-three-mode-comparison
 ```
 
+Each trial starts with its own empty checkpoint directory. Interrupted attempts retain their validated stages. A restart of a cold benchmark trial uses a fresh directory. The per-trial metrics include application requests, task-level retries, batch splits, and the tokens the provider reported for completed responses. A timeout can leave the total usage unknown even if the final report succeeds. Aggregate reported input and output token counters include failed trials.
+
 The runner evaluates each saved report against its original document. With an unlabelled stress input, it records structural validity and timing. Defect recall requires an independently annotated source.
 
 To measure expert-confirmed false findings, use independent analyst decisions tied to the SHA-256 of each report file. A reviewer assigns common defect IDs to confirmed findings, so repeated descriptions of a defect count once. An empty list marks a finding explicitly rejected by the analyst. Use `null` or omit an ID when the assessment is pending or uncertain. For example, the input format is

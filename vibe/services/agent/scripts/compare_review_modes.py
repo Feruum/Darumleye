@@ -21,7 +21,8 @@ from pydantic_core import ErrorType
 
 from agent.config.settings import Settings
 from agent.services.spec_review import _VALIDATION_REASONS
-from agent.spec_cli_progress import STAGES
+from agent.services.spec_stage_retry import TRANSIENT_RETRY_BACKOFF_SECONDS, TRANSIENT_RETRY_LIMIT
+from agent.spec_cli_progress import STAGES, TASK_RECOVERY_MESSAGES
 from agent.spec_review_cli import write_report
 
 if __package__:
@@ -83,12 +84,22 @@ def summarize_runs(runs: list[dict]) -> dict:
                     values.append(value)
                 return round(mean(values), 4) if values else None
 
+            usages = [trial.get("usage") or {} for trial in selected]
+
+            def total_reported(direction: str) -> int | None:
+                values = [usage.get(f"reported_{direction}_tokens", usage.get(f"{direction}_tokens")) for usage in usages]
+                known = [value for value in values if value is not None]
+                return sum(known) if known else None
+
             by_case[case][mode] = {
                 "trials": len(selected),
                 "completed": len(complete),
                 "failed": len(selected) - len(complete),
                 "structural_passed": sum(r.get("structural_passed", False) for r in complete),
                 "mean_elapsed_seconds": measured("elapsed_seconds"),
+                "all_trials_reported_input_tokens": total_reported("input"),
+                "all_trials_reported_output_tokens": total_reported("output"),
+                "all_trials_usage_complete": all(usage.get("usage_complete") is True for usage in usages) if usages else None,
                 "mean_input_tokens": measured("usage", "input_tokens"),
                 "mean_output_tokens": measured("usage", "output_tokens"),
                 "mean_cost_usd": measured("usage", "cost_usd"),
@@ -222,6 +233,8 @@ def trial_settings(env_file: Path, timeout: int) -> dict:
         "model": config.llm_model, "endpoint_sha256": sha256(config.llm_base_url.encode()).hexdigest(),
         "analysis_limit_seconds": timeout, "request_timeout_seconds": config.llm_timeout_seconds,
         "request_retries": config.llm_max_retries, "primary_concurrency": config.spec_review_concurrency,
+        "task_transient_retry_limit": TRANSIENT_RETRY_LIMIT,
+        "task_transient_retry_backoff_seconds": TRANSIENT_RETRY_BACKOFF_SECONDS,
         "drex_enabled": config.spec_review_use_nace, "drex_model": config.nace_model,
         "drex_timeout_seconds": config.nace_timeout_seconds,
     }
@@ -372,35 +385,43 @@ def failure_diagnostics(stderr: str | bytes | None, *, exit_code: int, process_t
     return result
 
 
-def count_stage_requests(stderr: str | bytes | None) -> dict[str, int]:
+def stage_activity(stderr: str | bytes | None) -> dict[str, dict[str, int]]:
     if isinstance(stderr, bytes):
         stderr = stderr.decode("utf-8", errors="replace")
     labels = {label: stage for stage, label in STAGES.items()}
-    counts: Counter[str] = Counter()
+    events = {message: event for event, message in TASK_RECOVERY_MESSAGES.items()}
+    counts = {key: Counter() for key in ("stage_requests", *events.values())}
     for line in (stderr or "").splitlines():
         progress = _PROGRESS_LINE.fullmatch(line)
-        if progress:
-            label, _, message = progress[1].partition(" — ")
+        if not progress:
+            continue
+        label, _, message = progress[1].partition(" — ")
+        if label not in labels:
+            continue
+        if message in events:
+            counts[events[message]][labels[label]] += 1
+        else:
             request = _REQUEST_LINE.fullmatch(message)
-            if label in labels and request and request[2] == "отправлен":
-                counts[labels[label]] += 1
-    return dict(counts)
+            if request and request[2] == "отправлен":
+                counts["stage_requests"][labels[label]] += 1
+    return {key: dict(values) for key, values in counts.items()}
 
 
 def run_trial(trial: Trial, output_dir: Path, env_file: Path, timeout: int) -> dict:
     name = trial.name
-    if any((output_dir / f"{name}{ext}").exists() for ext in (".json", ".usage.json")):
+    if any((output_dir / f"{name}{ext}").exists() for ext in (".json", ".usage.json", ".checkpoints")):
         # Preserve artifacts from a process interrupted before saving its trial record.
         name = f"{name}-restart-{uuid4().hex[:12]}"
     report = output_dir / f"{name}.json"
     usage = output_dir / f"{name}.usage.json"
+    checkpoints = output_dir / f"{name}.checkpoints"
     started = monotonic()
     fingerprint = implementation_fingerprint()
     settings = trial_settings(env_file, timeout)
     command = [
         sys.executable, "-m", "agent.spec_review_cli", "--input", str(trial.case.source),
         "--output", str(report), "--review-mode", trial.mode, "--timeout-seconds", str(timeout),
-        "--metrics-output", str(usage), "--env-file", str(env_file),
+        "--metrics-output", str(usage), "--env-file", str(env_file), "--checkpoint-dir", str(checkpoints),
     ]
     try:
         result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=timeout+360)
@@ -414,7 +435,8 @@ def run_trial(trial: Trial, output_dir: Path, env_file: Path, timeout: int) -> d
         "elapsed_seconds": round(monotonic() - started, 3),
         "status": "failed", "exit_code": exit_code, "structural_passed": False,
         **failure_diagnostics(stderr, exit_code=exit_code, process_timeout=exit_code == 124),
-        "stage_requests": count_stage_requests(stderr),
+        **stage_activity(stderr),
+        "checkpoints": checkpoints.name,
         "implementation_fingerprint": fingerprint, "trial_settings": settings,
         "implementation_unchanged_during_trial": fingerprint == implementation_fingerprint(),
         "usage": json.loads(usage.read_text()) if usage.exists() else None,

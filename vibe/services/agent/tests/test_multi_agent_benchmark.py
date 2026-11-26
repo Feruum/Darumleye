@@ -151,7 +151,14 @@ def test_stage_request_counts_exclude_replies_and_unrecognized_log_text():
         f"[00:07] {label} — запрос 2 · отправлен\n"
         "[00:08] user data — запрос 1 · отправлен\n"
     )
-    assert compare_review_modes.count_stage_requests(log.encode()) == {"multi_pair_1": 2}
+    log += (
+        f"[00:12] {label} — повтор задачи после временного сбоя провайдера\n"
+        f"[00:14] {label} — пакет разделён после ошибки валидации\n"
+    )
+    assert compare_review_modes.stage_activity(log.encode()) == {
+        "stage_requests": {"multi_pair_1": 2},
+        "spec_task_retry": {"multi_pair_1": 1}, "spec_task_split": {"multi_pair_1": 1},
+    }
 
 
 def test_stress_input_is_an_optional_unlabelled_cli_case(tmp_path, monkeypatch, capsys):
@@ -327,3 +334,38 @@ async def test_independent_audit_accepts_multi_agent_report_and_graph(tmp_path, 
     failures = {item["criterion"] for item in rejected["checks"] if not item["passed"]}
     assert "Graph links each finding to its reported requirements and citations" in failures
     assert "All readiness criteria exactly once and in order" in failures
+
+
+def test_total_reported_tokens_include_failed_and_partial_attempts():
+    records = [
+        {"case": "test", "mode": "legacy", "status": "completed", "usage": {
+            "input_tokens": 48, "output_tokens": 12, "usage_complete": True,
+        }},
+        {"case": "test", "mode": "legacy", "status": "failed", "usage": {
+            "input_tokens": None, "output_tokens": None, "reported_input_tokens": 7,
+            "reported_output_tokens": 3, "usage_complete": False,
+        }},
+    ]
+    summary = summarize_runs(records)["test"]["legacy"]
+    assert summary["all_trials_reported_input_tokens"] == 55
+    assert summary["all_trials_reported_output_tokens"] == 15
+    assert summary["all_trials_usage_complete"] is False
+    assert summary["mean_input_tokens"] == 48
+
+def test_cold_trial_uses_a_fresh_checkpoint_tree_after_interruption(tmp_path, monkeypatch):
+    trial = compare_review_modes.Trial(BenchmarkCase("example", tmp_path / "input.txt", None), "legacy", 1)
+    stale = tmp_path / f"{trial.name}.checkpoints"
+    stale.mkdir()
+    (stale / "previous").write_text("previous checkpoint")
+    monkeypatch.setattr(compare_review_modes, "implementation_fingerprint", lambda: "frozen")
+    monkeypatch.setattr(compare_review_modes, "trial_settings", lambda *_: {})
+    commands = []
+    def invoke(command, **kwargs):
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 1, "", "")
+    monkeypatch.setattr(compare_review_modes.subprocess, "run", invoke)
+    record = compare_review_modes.run_trial(trial, tmp_path, tmp_path / ".env", 900)
+    checkpoint = Path(commands[0][commands[0].index("--checkpoint-dir") + 1])
+    assert checkpoint != stale and checkpoint.parent == tmp_path
+    assert record["checkpoints"] == checkpoint.name
+    assert (stale / "previous").is_file()
