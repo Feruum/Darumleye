@@ -26,9 +26,10 @@ export function MascotPreview() {
   return <main className="preview-page">
     <header><Typography as="span" variant="caption">SPEC REVIEW / DESIGN</Typography><Typography as="a" href="/app/assistant" variant="bodySm">К рабочему кабинету →</Typography></header>
     <Typography as="h1" variant="h1">Живой маскот</Typography>
+    <Typography as="p" variant="bodySm" tone="muted">Наведи курсор на маскота или нажми на него. Выбери состояние, чтобы увидеть, как он реагирует.</Typography>
     <section className="preview-grid" aria-label="Предпросмотр маскота">
       <div className="preview-stage">
-        <div className="preview-character" data-testid="preview-character"><GlassMascot state={state} mood={mood} palette={palette} size={260} ambient spinOnHover /></div>
+        <div className="preview-character" data-testid="preview-character"><GlassMascot state={state} mood={mood} palette={palette} size={260} ambient expressive /></div>
         <Typography as="div" variant="caption" className="preview-state" aria-live="polite">{mood ? moods.find(item => item.value === mood)?.label : states.find(item => item.value === state)?.label} · {palette ? labels[palette] : 'Авто'}</Typography>
       </div>
       <div className="preview-controls">

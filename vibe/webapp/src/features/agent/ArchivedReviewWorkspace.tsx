@@ -38,13 +38,13 @@ export function ArchivedReviewWorkspace({ reviewId, view, sourceFile, references
         <Button asChild variant="ghost" size="sm" className="w-fit">{showFix
           ? <Link to="/app/assistant" search={{ reviewId }}><HugeiconsIcon icon={ArrowLeft01Icon} size={17} aria-hidden />Назад к отчёту</Link>
           : <Link to="/app"><HugeiconsIcon icon={ArrowLeft01Icon} size={17} aria-hidden />К обзору</Link>}</Button>
-        <div ref={heading} tabIndex={-1} className="sr-page-title"><Typography as="h1" variant="h1">{showFix ? 'Доработка ТЗ' : 'Результат проверки'}</Typography></div>
+        <div ref={heading} tabIndex={-1} className="sr-page-title"><Typography as="h1" variant="h1">{showFix ? 'Доработка ТЗ' : detail?.report.filename ?? 'Результат проверки'}</Typography></div>
         {showFix && detail && <Typography as="p" variant="bodySm" tone="muted">{detail.report.filename}</Typography>}
       </div>
       {detail && !showFix && <div className="sr-heading-actions">
         <Button asChild variant="outline"><Link to="/app/chat" search={{ reviewId: detail.id }}><HugeiconsIcon icon={Message01Icon} size={17} aria-hidden />Обсудить замечания</Link></Button>
         <Button variant="outline" onClick={() => downloadReview(detail.report)} type="button"><HugeiconsIcon icon={ArrowDown01Icon} size={17} aria-hidden />Скачать отчёт</Button>
-        {canFix && <Button asChild className="sr-primary sr-press"><Link to="/app/assistant" search={{ reviewId: detail.id, view: 'fix' }}>Начать доработку <HugeiconsIcon icon={ArrowRight01Icon} size={17} aria-hidden /></Link></Button>}
+        {canFix && <Button asChild className="sr-primary sr-press"><Link to="/app/assistant" search={{ reviewId: detail.id, view: 'fix' }}>Доработать ТЗ <HugeiconsIcon icon={ArrowRight01Icon} size={17} aria-hidden /></Link></Button>}
       </div>}
     </header>
     {query.isPending ? <div className="sr-panel sr-example-loading" role="status"><Typography variant="bodySm">Открываем отчёт…</Typography></div> : query.isError ? <Alert variant="destructive"><AlertDescription>{missing ? 'Отчёт не найден.' : 'Не удалось загрузить отчёт.'}</AlertDescription>{!missing && <Button variant="ghost" type="button" onClick={() => void query.refetch()}>Повторить</Button>}</Alert> : detail ? <div key={detail.id}>

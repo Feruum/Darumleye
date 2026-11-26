@@ -1,9 +1,9 @@
 import { useGaze } from '@blobatar/react/gaze'
 import { happy, idle, sad, sleepy, surprised, thinking, unsure, wink, type Expression } from 'blobatar/expression'
-import { motion, useMotionValue, useReducedMotion, useSpring } from 'motion/react'
+import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'motion/react'
 import { useMascotMood, type MascotMood, type MascotState } from './performance'
 export { mascotPerformance, type MascotMood, type MascotState } from './performance'
-import { useRef, useState, type CSSProperties } from 'react'
+import { useId, useRef, useState, type CSSProperties } from 'react'
 import bodyUrl from './glass-mascot-body.webp'
 import 'blobatar/motion.css'
 import 'blobatar/gaze.css'
@@ -69,6 +69,12 @@ const gesturePoses = {
   hover: { scaleX: 1.06, scaleY: .97, y: -1.5 },
   press: { scaleX: 1.16, scaleY: .86, y: 3 },
 } as const
+// Blooby's app presets pair the axes and settle the face after the chassis.
+const glassGesturePoses = {
+  rest: gesturePoses.rest,
+  hover: { scaleX: 1.025, scaleY: 1 / 1.025, y: -1.5 },
+  press: { scaleX: 1.09, scaleY: 1 / 1.09, y: 2 },
+} as const
 const elasticSpring = { type: 'spring' as const, duration: .5, bounce: .24 }
 
 export type GlassMascotProps = {
@@ -81,6 +87,8 @@ export type GlassMascotProps = {
   followPointer?: boolean
   ambient?: boolean
   spinOnHover?: boolean
+  /** Opt into the large assistant’s reactive screen and gestures. */
+  expressive?: boolean
   size?: number
   className?: string
 }
@@ -92,14 +100,21 @@ export type GlassMascotProps = {
  */
 export function GlassMascot({
   state = 'idle', mood: moodOverride, palette, seed, followPointer = true, ambient = false,
-  spinOnHover = false, size = 48, className,
+  spinOnHover = false, expressive = false, size = 48, className,
 }: GlassMascotProps) {
   const reduce = useReducedMotion() === true
-  const playful = ambient || spinOnHover
+  const playful = ambient || spinOnHover || expressive
   const gesturesEnabled = playful && !reduce
   const [gesture, setGesture] = useState<keyof typeof gesturePoses>('rest')
+  const [pulse, setPulse] = useState(0)
+  const lensId = useId()
+  const pressed = useRef(false)
   const leanTarget = useMotionValue(0)
   const lean = useSpring(leanTarget, { duration: .5, bounce: .22 })
+  // Project the face across a shallow curved surface, with a softer spring than the body.
+  const faceAngle = useSpring(leanTarget, { stiffness: 120, damping: 16 })
+  const faceX = useTransform(faceAngle, value => Math.sin(value * Math.PI / 42) * 5)
+  const faceWidth = useTransform(faceAngle, value => .9 + .1 * Math.cos(value * Math.PI / 24))
   const pointerBounds = useRef<DOMRect | null>(null)
   const mood = useMascotMood(state, playful, moodOverride, reduce)
   const { ref } = useGaze({ travel: 5, lookAt: followPointer ? 'pointer' : null })
@@ -123,11 +138,21 @@ export function GlassMascot({
     className={['glass-mascot', className].filter(Boolean).join(' ')}
     style={style} aria-hidden="true" focusable="false"
     data-mascot="glass" data-mascot-state={state} data-mascot-mood={mood} data-mascot-palette={paletteName}
-    data-playful={playful || undefined}
+    data-playful={playful || undefined} data-expressive={expressive || undefined} data-gesture={gesturesEnabled ? gesture : undefined}
     data-gaze={followPointer ? 'pointer' : undefined} data-spin={spinOnHover || undefined}
   >
+    {expressive && <defs>
+      <clipPath id={`${lensId}-screen`}>
+        <path d="M19 63 C20 56 34 44 49 35 C58 30 65 28 70 36 C73 41 77 52 77 58 C78 66 71 70 65 71 C55 73 44 74 35 74 C26 74 18 71 19 63Z" />
+      </clipPath>
+      <linearGradient id={`${lensId}-light`}>
+        <stop offset="0" stopColor={colour.eyes} stopOpacity="0" />
+        <stop offset=".5" stopColor={colour.eyes} stopOpacity=".28" />
+        <stop offset="1" stopColor={colour.eyes} stopOpacity="0" />
+      </linearGradient>
+    </defs>}
     <motion.g className="gm-elastic" initial={false} style={{ transformBox: 'view-box', originX: .5, originY: .8 }}
-      animate={gesturesEnabled ? gesturePoses[gesture] : gesturePoses.rest}
+      animate={gesturesEnabled ? (expressive ? glassGesturePoses : gesturePoses)[gesture] : gesturePoses.rest}
       transition={gesturesEnabled ? elasticSpring : { duration: 0 }}
       onPointerEnter={gesturesEnabled ? event => {
         if (event.pointerType !== 'touch') { pointerBounds.current = event.currentTarget.ownerSVGElement?.getBoundingClientRect() ?? null; setGesture('hover') }
@@ -139,10 +164,19 @@ export function GlassMascot({
           leanTarget.set(Math.max(-1, Math.min(1, dx)) * 7)
         }
       } : undefined}
-      onPointerDown={gesturesEnabled ? () => setGesture('press') : undefined}
-      onPointerUp={gesturesEnabled ? event => setGesture(event.pointerType === 'touch' ? 'rest' : 'hover') : undefined}
-      onPointerCancel={gesturesEnabled ? () => { pointerBounds.current = null; leanTarget.set(0); setGesture('rest') } : undefined}
-      onPointerLeave={gesturesEnabled ? () => { pointerBounds.current = null; leanTarget.set(0); setGesture('rest') } : undefined}>
+      onPointerDown={gesturesEnabled ? event => {
+        if (!event.isPrimary || event.button !== 0) return
+        pressed.current = true
+        setGesture('press')
+      } : undefined}
+      onPointerUp={gesturesEnabled ? event => {
+        if (!event.isPrimary || !pressed.current) return
+        pressed.current = false
+        setGesture(event.pointerType === 'touch' ? 'rest' : 'hover')
+        if (expressive) setPulse(value => value + 1)
+      } : undefined}
+      onPointerCancel={gesturesEnabled ? () => { pressed.current = false; pointerBounds.current = null; leanTarget.set(0); setGesture('rest') } : undefined}
+      onPointerLeave={gesturesEnabled ? () => { pressed.current = false; pointerBounds.current = null; leanTarget.set(0); setGesture('rest') } : undefined}>
     <motion.g className="gm-lean" style={{ transformBox: 'view-box', originX: .5, originY: .8, rotate: gesturesEnabled ? lean : 0 }}>
     <g className="gm-story"><g className="gm-spin">
       <g className={`mo-root${active || ambient ? ' mo-always' : ''}${expression !== idle ? ' mo-expr' : ''}`}>
@@ -152,6 +186,13 @@ export function GlassMascot({
             {/* Geometric proxy lets Blobatar's gaze survey measure the chassis locally. */}
             <path d="M5.6 67 C5.6 56 22 38 34 23 C42 13 49 11 55 11 C67 11 75 24 82 39 L91 58 Q100 79 86 85 Q77 91 52 89 L23 86 Q6 84 5.6 67Z" fill="transparent" pointerEvents="none" />
           </g>
+          {expressive && !reduce && <g clipPath={`url(#${lensId}-screen)`} pointerEvents="none">
+            <g className="gm-lens-scan">
+              <rect x="0" y="23" width="26" height="57" transform="skewX(-19)" fill={`url(#${lensId}-light)`} />
+            </g>
+            {pulse > 0 && <ellipse key={pulse} className="gm-lens-pulse" cx="50" cy="59" rx="8" ry="6" fill="none" stroke={colour.eyes} strokeWidth=".8" />}
+          </g>}
+          <motion.g style={expressive && !reduce ? { x: faceX, scaleX: faceWidth, transformBox: 'view-box', originX: .51, originY: .6 } : undefined}>
           <g className="mo-eyes" fill={colour.eyes}>
             {[-1, 1].map((side) => {
               const x = eyeCenter + side * gap
@@ -161,6 +202,7 @@ export function GlassMascot({
             })}
             <path d={mouthPaths[mood]} className="gm-mouth" fill="none" stroke={colour.eyes} strokeWidth=".95" strokeLinecap="round" />
           </g>
+          </motion.g>
         </g></g>
       </g>
     </g></g>

@@ -1,10 +1,9 @@
 import { AGENT_DEFAULT_REVIEW_MODE, agentReviewModeLabels, type AgentReviewSubmissionMode } from '@web-app-demo/contracts'
 import {
-  ArrowRight01Icon, ArrowUp02Icon, BookOpen01Icon, CheckmarkCircle02Icon,
+  ArrowDown01Icon, ArrowRight01Icon, ArrowUp02Icon, BookOpen01Icon, CheckmarkCircle02Icon,
   Clock01Icon, File01Icon, Search01Icon, Tick02Icon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
-import { motion, useReducedMotion } from 'motion/react'
 import { GlassMascot } from '@web-app-demo/mascot'
 import { useId, useRef, useState, type FormEvent } from 'react'
 
@@ -74,7 +73,6 @@ export function ReviewSetup({
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
-  const reduce = useReducedMotion()
   if (pendingRecovery) return <form className="sr-panel sr-setup-form" onSubmit={onSubmit}>
     <section className="sr-form-section" aria-label="Возобновление проверки">
       <Alert><AlertTitle>Связь с проверкой прервана</AlertTitle><AlertDescription>Проверка могла продолжиться на сервере. Исходный документ и настройки сохранены при принятии задания. Повторная загрузка не требуется.</AlertDescription></Alert>
@@ -87,7 +85,8 @@ export function ReviewSetup({
       <section className="sr-form-section" aria-labelledby={`${inputId}-document`}>
         <div className="sr-section-heading">
           <div>
-            <Typography as="h2" variant="h2" id={`${inputId}-document`}>1. Загрузите техническое задание</Typography>
+            <Typography as="h2" variant="h2" id={`${inputId}-document`}>Техническое задание</Typography>
+            <Typography as="p" variant="bodySm" tone="muted">Добавьте один документ для проверки требований.</Typography>
           </div>
           {file && <Typography as="span" variant="caption" className="sr-tag" data-tone="pass">Выбран</Typography>}
         </div>
@@ -110,29 +109,23 @@ export function ReviewSetup({
         {fileError && <Alert variant="destructive"><AlertTitle>Файл не подходит</AlertTitle><AlertDescription>{fileError}</AlertDescription></Alert>}
       </section>
 
-      <section className="sr-form-section sr-config-section" aria-labelledby={`${inputId}-settings`}>
-        <div className="sr-section-heading">
-          <div>
-            <Typography as="h2" variant="h2" id={`${inputId}-settings`}>2. Настройте проверку</Typography>
-          </div>
-        </div>
-        <motion.div className="sr-config-body" initial={reduce ? false : { opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduce ? 0 : .2, ease: [0.16, 1, 0.3, 1] }}>
-          <div className="sr-default-check">
-            <span className="sr-check-symbol"><HugeiconsIcon icon={CheckmarkCircle02Icon} size={22} aria-hidden /></span>
-            <div><Typography as="strong" variant="bodySmMedium">Качество и согласованность ТЗ</Typography></div>
-            <Typography as="span" variant="caption" className="sr-default-label">Включено</Typography>
-          </div>
-          <fieldset className="sr-review-mode-options">
-            <Typography as="legend" variant="bodySmMedium">Режим проверки</Typography>
+      <section className="sr-form-section sr-config-section" aria-label="Настройки проверки">
+        <details className="sr-mode-disclosure">
+          <summary>
+            <Typography as="span" variant="bodySmMedium" id={`${inputId}-settings`}>Режим проверки</Typography>
+            <Typography as="span" variant="caption" className="sr-mode-current">{agentReviewModeLabels[reviewMode]}</Typography>
+            <HugeiconsIcon icon={ArrowDown01Icon} className="sr-mode-chevron" size={16} aria-hidden />
+          </summary>
+          <fieldset className="sr-review-mode-options" aria-labelledby={`${inputId}-settings`}>
             {reviewModeOptions.map(({ mode, description }) => <label key={mode}>
               <input type="radio" name={`${inputId}-review-mode`} value={mode} checked={reviewMode === mode} onChange={() => onReviewModeChange?.(mode)} />
               <span><Typography as="strong" variant="bodySmMedium">{agentReviewModeLabels[mode]}</Typography><Typography as="span" variant="caption">{description}</Typography></span>
             </label>)}
           </fieldset>
-          {file && <ReferenceSourcesInput references={references} disabled={false} onChange={onReferencesChange} onFileError={onReferenceError} />}
-          {referenceError && <Alert variant="destructive"><AlertTitle>Проверьте источники</AlertTitle><AlertDescription>{referenceError}</AlertDescription></Alert>}
-        </motion.div>
-        {requestError && <Alert variant="destructive"><AlertTitle>Проверка не завершена</AlertTitle><AlertDescription>{requestError}</AlertDescription>{file && <Button className="sr-error-action" type="button" variant="ghost" size="sm" onClick={() => inputRef.current?.click()}>Выбрать другой документ</Button>}</Alert>}
+        </details>
+        {file && <ReferenceSourcesInput references={references} disabled={false} onChange={onReferencesChange} onFileError={onReferenceError} />}
+        {referenceError && <Alert variant="destructive"><AlertTitle>Проверьте источники</AlertTitle><AlertDescription>{referenceError}</AlertDescription></Alert>}
+          {requestError && <Alert variant="destructive"><AlertTitle>Проверка не завершена</AlertTitle><AlertDescription>{requestError}</AlertDescription>{file && <Button className="sr-error-action" type="button" variant="ghost" size="sm" onClick={() => inputRef.current?.click()}>Выбрать другой документ</Button>}</Alert>}
         {cancelled && <Typography as="p" variant="bodySm" role="status" className="sr-cancel-notice">Ожидание остановлено. Настройки сохранены, проверку можно запустить снова.</Typography>}
         <div className="sr-form-footer">
           <Typography as="small" variant="caption">Документы передаются AI-модели.</Typography>
@@ -143,8 +136,8 @@ export function ReviewSetup({
 
     <aside className="sr-guide" aria-label="Что будет в отчёте">
       <div className="sr-guide-heading">
-        <div><Typography as="h2" variant="h2">Что вы получите</Typography></div>
-        <div className="sr-guide-mascot" aria-hidden><GlassMascot size={104} spinOnHover ambient /></div>
+        <div><Typography as="h2" variant="h2">Как выглядит отчёт</Typography></div>
+        <div className="sr-guide-mascot" aria-hidden><GlassMascot size={80} expressive /></div>
       </div>
       <ul className="sr-benefits">
         <li><HugeiconsIcon icon={Search01Icon} size={20} aria-hidden /><div><Typography as="strong" variant="bodySmMedium">Проблемные требования</Typography></div></li>
@@ -154,7 +147,7 @@ export function ReviewSetup({
       <div className="sr-guide-example">
         <div className="sr-example-label"><Typography as="span" variant="caption">ПРИМЕР ЗАМЕЧАНИЯ</Typography><Typography as="span" variant="caption" className="sr-tag" data-tone="uncertain">Непроверяемо</Typography></div>
         <Typography as="blockquote" variant="bodySm" className="sr-example-quote">«Оплата должна выполняться быстро.»</Typography>
-        <Typography as="p" variant="bodySm">Укажите точное время выполнения операции.</Typography>
+        <Typography as="p" variant="bodySm">Что исправить: задайте измеримое время выполнения операции.</Typography>
       </div>
       <Button variant="outline" className="sr-guide-cta sr-press" type="button" onClick={onViewExample} disabled={loadingExample}>Посмотреть пример отчёта <HugeiconsIcon icon={ArrowRight01Icon} size={17} aria-hidden /></Button>
     </aside>
@@ -165,7 +158,7 @@ export function ReviewRunning({ filename, elapsed, hasReferences, onCancel }: { 
   return <section className="sr-panel sr-running" aria-label="Выполняется проверка">
     <div className="sr-running-main">
       <div className="sr-running-mascot" aria-hidden>
-        <GlassMascot state="thinking" size={176} ambient spinOnHover />
+        <GlassMascot state="thinking" size={176} ambient expressive />
       </div>
       <div className="sr-running-content">
         <div className="sr-running-status"><span className="sr-live-dot" aria-hidden /><Typography as="span" variant="caption">Проверка выполняется</Typography><Typography as="span" variant="caption" className="sr-elapsed"><HugeiconsIcon icon={Clock01Icon} size={15} aria-hidden /> {formatReviewElapsed(elapsed)}</Typography></div>

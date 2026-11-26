@@ -10,7 +10,7 @@ const config: StorybookConfig = {
     options: {},
   },
   staticDirs: ['../public'],
-  stories: ['../src/stories/**/*.stories.@(ts|tsx)'],
+  stories: ['../src/{stories,features}/**/*.stories.@(ts|tsx)'],
   async viteFinal(viteConfig) {
     const { mergeConfig } = await import('vite')
 

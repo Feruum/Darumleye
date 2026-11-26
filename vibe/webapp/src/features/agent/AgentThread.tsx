@@ -36,7 +36,7 @@ export function AgentThread({ transport, reviewId, reviewFilename }: {
           <div className="agent-message-column mx-auto grid w-full min-w-0 gap-5 px-2 py-2 sm:px-3">
             <ThreadPrimitive.Empty>
               <div className="agent-welcome grid justify-items-center gap-4 px-1 py-6 text-center sm:py-8">
-                <span className="agent-welcome-avatar"><GlassMascot size={96} followPointer ambient spinOnHover /></span>
+                <span className="agent-welcome-avatar"><GlassMascot size={96} followPointer ambient expressive /></span>
                 <div className="grid gap-2">
                   <Typography as="h2" variant="h3">{reviewId ? 'Обсудим результаты проверки?' : 'Сначала проверьте ТЗ'}</Typography>
                   <Typography className="max-w-[440px]" tone="muted" variant="bodySm">
@@ -98,7 +98,7 @@ export function AgentResponseIdentity({ running, hasText, failed = false, follow
   const state = running ? hasText ? 'streaming' : 'waiting' : 'idle'
   return <div className="flex min-w-0 items-center gap-3" data-testid="agent-response-identity" data-response-state={state}>
     <span className="agent-response-avatar" data-active={running}>
-      <GlassMascot size={56} state={failed ? 'error' : running ? hasText ? 'speaking' : 'thinking' : hasText ? 'success' : 'idle'} followPointer={followPointer} ambient={running && followPointer} />
+      <GlassMascot size={56} state={failed ? 'error' : running ? hasText ? 'speaking' : 'thinking' : hasText ? 'success' : 'idle'} followPointer={followPointer} ambient={running && followPointer} expressive={followPointer} />
     </span>
     <div className="grid gap-0.5">
       <Typography variant="bodySmMedium">Ассистент</Typography>

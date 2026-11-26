@@ -124,6 +124,8 @@
 
 ## 9. Решения агента
 
+- The review workspace uses a collapsed mode selector, a priority-grouped findings queue, and a clear primary action for proposed edits. Storybook includes a local sample flow.
+
 Принимай эти решения сам. Объясняй их через результат для продукта:
 
 - `website` — публичные страницы и SEO; `webapp` — экраны после входа.

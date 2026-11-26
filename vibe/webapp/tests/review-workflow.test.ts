@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { ReviewSetup, ReviewSteps } from '../src/features/agent/ReviewSetup'
-import { agentSpecReviewSchema } from '@web-app-demo/contracts'
+import { agentReviewModeLabels, agentSpecReviewSchema } from '@web-app-demo/contracts'
 
 import { deriveReviewSteps, formatReviewElapsed, filterReportFindings } from '../src/features/agent/review-workflow'
 import { reviewFindingsWithDecisions } from '../src/features/agent/review-report'
@@ -64,6 +64,8 @@ test('setup offers all three review modes with paired selected by default', () =
   const props = { references: [], cancelled: false, loadingExample: false, onFileSelect: noop, onReferencesChange: noop, onReferenceError: noop, onViewExample: noop, onSubmit: noop }
   for (const mode of [undefined, 'multi_agent', 'multi_agent_direct', 'legacy'] as const) {
     const markup = renderToStaticMarkup(createElement(ReviewSetup, { ...props, reviewMode: mode }))
+    const summary = markup.match(/<summary>(.*?)<\/summary>/s)?.[1]
+    expect(summary).toContain(agentReviewModeLabels[mode ?? 'multi_agent'])
     const radios = markup.match(/<input[^>]+type="radio"[^>]*>/g) ?? []
     expect(radios).toHaveLength(3)
     expect(radios.filter(radio => radio.includes('checked=""')).map(radio => radio.match(/value="([^"]+)"/)?.[1])).toEqual([mode ?? 'multi_agent'])

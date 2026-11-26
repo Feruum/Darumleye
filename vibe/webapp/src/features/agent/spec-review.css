@@ -191,11 +191,14 @@
 .sr-file-drop:not([data-selected=true]) .sr-file-action { background: var(--sr-violet-soft); padding: .6rem .8rem; border-radius: 999px; }
 .sr-file-meta { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; margin-top: -.5rem; }
 .sr-file-meta p { color: var(--sr-muted); font-size: .75rem; }
-.sr-config-body { display: grid; gap: .8rem; min-width: 0; }
-.sr-default-check { display: grid; grid-template-columns: auto minmax(0,1fr) auto; gap: .7rem; align-items: center; padding: .8rem .9rem; border-radius: .8rem; background: var(--sr-violet-soft); }
-.sr-check-symbol { color: var(--sr-violet); }
-.sr-default-check strong { font-size: .87rem; font-weight: 680; }
-.sr-default-label { color: var(--sr-violet); font-size: .72rem; font-weight: 650; white-space: nowrap; }
+.sr-mode-disclosure { min-width: 0; border: 1px solid var(--sr-line); border-radius: .75rem; background: var(--sr-surface); }
+.sr-mode-disclosure > summary { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; min-height: 2.75rem; padding: .65rem .85rem; border-radius: inherit; cursor: pointer; list-style: none; }
+.sr-mode-disclosure > summary::-webkit-details-marker { display: none; }
+.sr-mode-disclosure > summary:hover { background: var(--sr-canvas); }
+.sr-mode-current { margin-inline-start: auto; color: var(--sr-violet); }
+.sr-mode-chevron { flex: none; color: var(--sr-muted); }
+.sr-mode-disclosure[open] .sr-mode-chevron { transform: rotate(180deg); }
+.sr-mode-disclosure > .sr-review-mode-options { padding: .65rem .85rem .8rem; border-top: 1px solid var(--sr-line); }
 .sr-form-footer { display: flex; align-items: center; justify-content: space-between; gap: .85rem 1rem; flex-wrap: wrap; padding-top: .15rem; }
 .sr-form-footer small { color: var(--sr-muted); font-size: .72rem; line-height: 1.45; }
 .sr-form-footer .sr-primary { min-height: 2.75rem; padding-inline: 1rem; white-space: nowrap; }
@@ -209,8 +212,8 @@
 
 /* Inline onboarding: why the check matters and an actual pre-generated example. */
 .sr-guide { min-width: 0; display: grid; gap: 1rem; border: 1px solid var(--glass-edge); background: var(--glass-surface); box-shadow: var(--glass-shadow); border-radius: 1.15rem; padding: 1rem; }
-.sr-guide-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; min-height: 9.5rem; padding: .95rem; border-radius: .9rem; overflow: hidden; background: linear-gradient(90deg, rgb(239 236 255 / 88%), rgb(239 236 255 / 18%)), url('../../assets/review-glass.webp') center 50% / cover; color: #321548; }
-.sr-guide-heading h2 { max-width: 9ch; font-size: clamp(1.35rem, 1.9vw, 1.75rem); letter-spacing: -.035em; line-height: 1.1; }
+.sr-guide-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; min-height: 7.5rem; padding: .95rem; border-radius: .9rem; overflow: hidden; background: linear-gradient(90deg, rgb(239 236 255 / 88%), rgb(239 236 255 / 18%)), url('../../assets/review-glass.webp') center 50% / cover; color: #321548; }
+.sr-guide-heading h2 { max-width: 13ch; font-size: clamp(1.35rem, 1.9vw, 1.75rem); letter-spacing: -.035em; line-height: 1.1; }
 .dark .sr-guide-heading { background-image: linear-gradient(90deg, rgb(41 29 61 / 94%), rgb(49 31 72 / 25%)), url('../../assets/review-glass.webp'); color: #fff; }
 .sr-guide-heading > div:first-child { display: grid; gap: .38rem; min-width: 0; }
 .sr-guide-mascot { position: relative; width: clamp(4.7rem, 7vw, 6.4rem); aspect-ratio: 1; flex: none; display: grid; place-items: center; filter: drop-shadow(0 8px 14px rgb(44 25 80 / 24%)); }
