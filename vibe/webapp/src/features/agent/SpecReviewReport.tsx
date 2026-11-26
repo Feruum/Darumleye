@@ -18,6 +18,13 @@ import { numberAnnotation, sameEvidence, type ReviewAnnotation, type ReviewEvide
 import { findingDisplayTitle, formatEvidenceLocation, groupReviewFindings, matchGroupedPriorityFinding, requirementNeedsRevision, reviewFindingsWithDecisions, type GroupedReviewFinding, type IndexedReviewFinding } from './review-report'
 import './document-review.css'
 
+const severityGroups = [
+  { id: 'critical', label: 'Критичные' },
+  { id: 'high', label: 'Высокий приоритет' },
+  { id: 'medium', label: 'Средний приоритет' },
+  { id: 'low', label: 'Низкий приоритет' },
+] as const
+
 const priorities = { critical: 'Критично', high: 'Высокий приоритет', medium: 'Средний приоритет', low: 'Низкий приоритет' }
 const priorityTones = { critical: 'danger', high: 'warning', medium: 'warning', low: 'info' } as const
 const checkLabels = { pass: 'Соответствует', fail: 'Не соответствует', uncertain: 'Уточнить', not_applicable: 'Не применимо' }
@@ -81,9 +88,13 @@ function FindingInspector({ entry, index, total, number, source, activeEvidence,
         <Button variant="outline" size="icon-sm" type="button" aria-label="Следующее замечание" disabled={index >= total - 1} onClick={onNext}><HugeiconsIcon icon={ArrowRight01Icon} size={17} aria-hidden /></Button>
       </div>
       <div className="sr-inspector-scroll" ref={scrollRef}>
-        <div className="sr-inspector-content" key={entry.id}>
+        <div className="sr-margin-heading">
+          <Typography as="span" variant="caption" tone="muted">{activeEvidence ? 'Отмечено в документе' : 'Замечание по требованиям'}</Typography>
+          <span className="sr-margin-mascot" aria-hidden><GlassMascot size={42} followPointer={false} /></span>
+        </div>
+        <div className="sr-inspector-content" key={entry.id} data-severity={entry.finding.severity}>
+          <Typography as="p" variant="caption" className="sr-inspector-ids">{numberAnnotation(number ?? index + 1)} / {entry.members.map(member => member.id).join(' · ')}</Typography>
           <Typography as="h3" variant="h4" className="sr-inspector-title">{findingDisplayTitle(entry.finding)}</Typography>
-          <Typography as="p" variant="caption">ID в отчёте: {entry.members.map(member => member.id).join(' · ')}</Typography>
           <div className="sr-inspector-meta"><ArcBadge size="sm" tone={priorityTones[entry.finding.severity]}>{priorities[entry.finding.severity]}</ArcBadge>{entry.finding.evidence.length === 1 && <Typography as="span" variant="caption" className="sr-inspector-location">{formatEvidenceLocation(entry.finding.evidence[0]!, source)}</Typography>}</div>
           <FindingContent entry={entry} source={source} activeEvidence={activeEvidence} onShow={onShow} showQuote={showQuote} inspector />
         </div>
@@ -111,6 +122,9 @@ export function SpecReviewReport({ report, sourceFile, sourceUnits, sourceLoadin
   const [query, setQuery] = useState('')
   const [findingQuery, setFindingQuery] = useState('')
   const [mobilePane, setMobilePane] = useState<'document' | 'findings'>('findings')
+  const [queueOpen, setQueueOpen] = useState(false)
+  const queueToggle = useRef<HTMLButtonElement>(null)
+  const queueId = useId()
   const [narrowView, setNarrowView] = useState<'list' | 'detail'>('list')
   const [selectedFindingId, setSelectedFindingId] = useState<string>()
   const [selectedRequirementId, setSelectedRequirementId] = useState<string>()
@@ -135,9 +149,11 @@ export function SpecReviewReport({ report, sourceFile, sourceUnits, sourceLoadin
   const priorityItems = report.verdict.priorities.map((text) => ({ text, entry: matchGroupedPriorityFinding(text, indexed) }))
   const importantFindings = indexed.filter(({ finding }) => finding.severity === 'high' || finding.severity === 'critical')
   const findingSearch = findingQuery.toLocaleLowerCase().trim()
-  const filtered = (important ? importantFindings : indexed).filter(({ finding }) => [findingDisplayTitle(finding), finding.issue, finding.recommendation, ...finding.requirement_ids, ...finding.evidence.flatMap(item => [item.quote, formatEvidenceLocation(item, report.source)])].join(' ').toLocaleLowerCase().includes(findingSearch))
-  const selectedFinding = filtered.find(({ id }) => id === selectedFindingId) ?? filtered[0]
-  const selectedIndex = filtered.findIndex(({ id }) => id === selectedFinding?.id)
+  const filtered = (important ? importantFindings : indexed).filter(({ finding, members }) => [...members.map(member => member.id), findingDisplayTitle(finding), finding.issue, finding.recommendation, ...finding.requirement_ids, ...finding.evidence.flatMap(item => [item.quote, formatEvidenceLocation(item, report.source)])].join(' ').toLocaleLowerCase().includes(findingSearch))
+  const groups = severityGroups.map(group => ({ ...group, entries: filtered.filter(({ finding }) => finding.severity === group.id) }))
+  const queue = groups.flatMap(group => group.entries)
+  const selectedFinding = queue.find(({ id }) => id === selectedFindingId) ?? queue[0]
+  const selectedIndex = queue.findIndex(({ id }) => id === selectedFinding?.id)
   const annotations: ReviewAnnotation[] = useMemo(() => indexed.flatMap(({ id, finding }, index) => finding.evidence.map((evidence) => ({ id, number: index + 1, evidence, severity: finding.severity }))), [indexed])
   const issuesById = new Map<string, GroupedReviewFinding[]>()
   for (const entry of indexed) for (const id of entry.finding.requirement_ids) issuesById.set(id, [...(issuesById.get(id) ?? []), entry])
@@ -152,8 +168,8 @@ export function SpecReviewReport({ report, sourceFile, sourceUnits, sourceLoadin
     if (tab !== 'findings' || !analysisScroll.current || !selectedRow.current) return
     const root = analysisScroll.current
     const row = selectedRow.current
-    if (row.offsetTop < root.scrollTop || row.offsetTop + 72 > root.scrollTop + root.clientHeight) root.scrollTop = Math.max(0, row.offsetTop - 8)
-  }, [selectedFinding?.id, tab, important, findingQuery, agentOpen])
+    if (row.offsetTop < root.scrollTop || row.offsetTop + row.offsetHeight > root.scrollTop + root.clientHeight) root.scrollTop = Math.max(0, row.offsetTop - 8)
+  }, [selectedFinding?.id, tab, important, findingQuery, agentOpen, queueOpen])
 
   useEffect(() => {
     if (tab !== 'requirements' || !contextScroll.current || !selectedRequirementRow.current) return
@@ -224,7 +240,14 @@ export function SpecReviewReport({ report, sourceFile, sourceUnits, sourceLoadin
     revealMobileReport()
   }
 
-  function chooseFinding(id: string) {
+  function toggleQueue() {
+    setQueueOpen(!queueOpen)
+    if (!queueOpen) window.requestAnimationFrame(() => analysisScroll.current?.closest('section')?.querySelector('input')?.focus({ preventScroll: true }))
+  }
+
+  function chooseFinding(id: string, fromQueue = false) {
+    if (fromQueue && queueOpen) window.requestAnimationFrame(() => queueToggle.current?.focus({ preventScroll: true }))
+    setQueueOpen(false)
     setReferenceCitation(undefined)
     setTab('findings')
     setMobilePane('findings')
@@ -245,6 +268,7 @@ export function SpecReviewReport({ report, sourceFile, sourceUnits, sourceLoadin
   }
 
   function pickAnnotation(annotation: ReviewAnnotation) {
+    setQueueOpen(false)
     setTab('findings')
     if (!filtered.some(({ id }) => id === annotation.id)) { setImportant(false); setFindingQuery('') }
     setSelectedFindingId(annotation.id)
@@ -257,6 +281,7 @@ export function SpecReviewReport({ report, sourceFile, sourceUnits, sourceLoadin
   }
 
   function changeTab(next: ReviewTab) {
+    setQueueOpen(false)
     if (next === 'findings') setNarrowView('list')
     if (next === tab) { setMobilePane('findings'); return }
     setReferenceCitation(undefined)
@@ -327,10 +352,11 @@ export function SpecReviewReport({ report, sourceFile, sourceUnits, sourceLoadin
       <button type="button" aria-pressed={mobilePane === 'findings'} onClick={() => setMobilePane('findings')}><Typography as="span" variant="bodySmMedium">{tab === 'graph' ? 'Граф' : 'Отчёт'}</Typography></button>
       <button type="button" aria-pressed={mobilePane === 'document'} onClick={() => setMobilePane('document')}><Typography as="span" variant="bodySmMedium">{referenceSource ? 'Регламент' : 'Документ'}</Typography></button>
     </div>
-    <div ref={layoutRef} className="sr-reader-layout" data-tab={tab} data-mobile-pane={mobilePane} data-narrow-view={narrowView} data-focus-mode={focusMode} data-agent-open={agentOpen}>
+    <div ref={layoutRef} className="sr-reader-layout" data-tab={tab} data-mobile-pane={mobilePane} data-narrow-view={narrowView} data-focus-mode={focusMode} data-agent-open={agentOpen} data-queue-open={queueOpen}>
       <div className="sr-review-toolbar">
         <div className="sr-tabs sr-reader-tabs" aria-label="Раздел отчёта" data-expanded-tabs={tabs.length > 4}>{tabs.map(({ id, label, count }) => <button type="button" aria-pressed={tab === id} key={id} onClick={() => changeTab(id)}><Typography as="span" variant="bodySmMedium">{label}</Typography>{count !== undefined && id !== 'findings' && <Typography as="span" variant="caption" className="sr-tab-count">{count}</Typography>}</button>)}</div>
-        <div className="sr-toolbar-verdict" data-verdict={report.verdict.status}><span aria-hidden className="sr-reader-verdict-dot" /><Typography as="span" variant="caption">{verdictLabels[report.verdict.status]}</Typography></div>
+        {tab === 'findings' && <Button ref={queueToggle} variant="outline" size="sm" type="button" className="sr-desk-queue-toggle" aria-expanded={queueOpen} aria-controls={queueId} onClick={toggleQueue}>{queueOpen ? 'К замечанию' : `Все замечания · ${indexed.length}`}</Button>}
+        <Button variant="ghost" size="sm" type="button" className="sr-toolbar-verdict" data-verdict={report.verdict.status} onClick={() => changeTab('set')} title="Открыть итог проверки"><span aria-hidden className="sr-reader-verdict-dot" /><Typography as="span" variant="caption">{verdictLabels[report.verdict.status]}</Typography></Button>
       </div>
       {referenceSource && referenceCitation ? <ReferenceSourceReader key={`${report.passport.run_id}:${referenceSource.id}`} reviewId={report.passport.run_id ?? undefined} source={referenceSource} evidence={referenceCitation.evidence} jump={jump}
         references={references} mobileVisible={mobilePane === 'document'} focusMode={focusMode} onToggleFocus={toggleFocusMode} /> : <ReviewSourceDocument file={sourceFile} sourceUnits={sourceUnits} sourceLoading={sourceLoading} ocrPages={report.ocr_pages} unreadableUnits={report.unreadable_units} filename={report.filename} source={report.source} evidence={activeEvidence} jump={jump} mobileVisible={mobilePane === 'document'} focusOnJump={tab === 'graph'} annotations={annotations} activeAnnotationId={tab === 'findings' ? selectedFinding?.id : undefined} onAnnotationSelect={pickAnnotation} focusMode={focusMode} onToggleFocus={toggleFocusMode} />}
@@ -339,19 +365,26 @@ export function SpecReviewReport({ report, sourceFile, sourceUnits, sourceLoadin
         <Typography as="span" variant="bodySmMedium">{agentOpen ? 'Только документ' : 'Показать отчёт'}</Typography>
         <Typography as="span" variant="caption" className="sr-focus-agent-count">{indexed.length}</Typography>
       </button></div>}
-      <section className="sr-reader-analysis sr-reader-queue" aria-label="Список замечаний" data-testid="review-finding-list">
+      <section id={queueId} className="sr-reader-analysis sr-reader-queue" aria-label="Список замечаний" data-testid="review-finding-list">
         <div className="sr-reader-analysis-header">
           <div><Typography as="h3" variant="h4">Замечания</Typography><ArcBadge size="sm" tone="neutral">{indexed.length}</ArcBadge></div>
         </div>
           <div className="sr-findings-search">
-            <SearchField label="Поиск замечаний" placeholder="Поиск" value={findingQuery} onValueChange={(value) => { setTab('findings'); setFindingQuery(value); setSelectedFindingId(undefined); setCitation(undefined); setJump(previous => previous + 1) }} />
+            <SearchField label="Поиск замечаний" placeholder="Текст, ID или цитата" value={findingQuery} onValueChange={(value) => { setTab('findings'); setFindingQuery(value); setSelectedFindingId(undefined); setCitation(undefined); setJump(previous => previous + 1) }} />
           </div>
           <div className="sr-reader-toolbar sr-finding-filter">
             <Button variant="ghost" size="sm" type="button" aria-pressed={!important} onClick={() => { if (!important && tab === 'findings') return; setTab('findings'); setImportant(false); setCitation(undefined); setJump((previous) => previous + 1) }}>Все <Typography as="span" variant="caption">{indexed.length}</Typography></Button>
             <Button variant="ghost" size="sm" type="button" aria-pressed={important} onClick={() => { if (important && tab === 'findings') return; setTab('findings'); setImportant(true); setCitation(undefined); setJump((previous) => previous + 1) }}>Важные <Typography as="span" variant="caption">{importantFindings.length}</Typography></Button>
           </div>
         <div className="sr-reader-analysis-scroll" ref={analysisScroll}>
-          {filtered.map((entry) => <FindingRow key={entry.id} entry={entry} number={indexedNumbers.get(entry.id)!} source={report.source} selected={tab === 'findings' && selectedFinding?.id === entry.id} itemRef={selectedFinding?.id === entry.id ? selectedRow : undefined} onSelect={() => chooseFinding(entry.id)} />)}
+          {groups.map(({ id, label, entries }) => entries.length > 0 && <section className="sr-queue-group" key={id} aria-label={label}>
+            <div className="sr-queue-group-heading" data-severity={id}>
+              <span className="sr-queue-group-dot" aria-hidden />
+              <Typography as="h4" variant="caption">{label}</Typography>
+              <Typography as="span" variant="caption">{entries.length}</Typography>
+            </div>
+            {entries.map((entry) => <FindingRow key={entry.id} entry={entry} number={indexedNumbers.get(entry.id)!} source={report.source} selected={tab === 'findings' && selectedFinding?.id === entry.id} itemRef={selectedFinding?.id === entry.id ? selectedRow : undefined} onSelect={() => chooseFinding(entry.id, true)} />)}
+          </section>)}
           {!filtered.length && <div className="sr-reader-empty"><Typography as="h4" variant="bodySmMedium">{findingSearch ? 'Ничего не найдено' : important ? 'Важных замечаний нет' : 'Замечаний не найдено'}</Typography></div>}
         </div>
       </section>
@@ -382,7 +415,7 @@ export function SpecReviewReport({ report, sourceFile, sourceUnits, sourceLoadin
           {tab === 'references' && report.reference_review && <ReferenceReviewPanel review={report.reference_review} specificationSource={report.source} onShowEvidence={onShow} onShowReference={onShowReference} />}
         </div>
       </section>}
-      {tab === 'findings' && <FindingInspector entry={selectedFinding} index={selectedIndex} total={filtered.length} number={selectedFinding ? indexedNumbers.get(selectedFinding.id) : undefined} source={report.source} activeEvidence={activeEvidence} onShow={onShow} showQuote={showQuote} onPrevious={() => { const entry = filtered[selectedIndex - 1]; if (entry) chooseFinding(entry.id) }} onNext={() => { const entry = filtered[selectedIndex + 1]; if (entry) chooseFinding(entry.id) }} onBack={backToFindingList} />}
+      {tab === 'findings' && <FindingInspector entry={selectedFinding} index={selectedIndex} total={queue.length} number={selectedFinding ? indexedNumbers.get(selectedFinding.id) : undefined} source={report.source} activeEvidence={activeEvidence} onShow={onShow} showQuote={showQuote} onPrevious={() => { const entry = queue[selectedIndex - 1]; if (entry) chooseFinding(entry.id) }} onNext={() => { const entry = queue[selectedIndex + 1]; if (entry) chooseFinding(entry.id) }} onBack={backToFindingList} />}
     </div>
   </section>
 }

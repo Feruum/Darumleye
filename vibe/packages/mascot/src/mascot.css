@@ -53,8 +53,29 @@
 @keyframes gm-thought { 0%,100% { opacity: .24; transform: translateY(1px) scale(.85); } 50% { opacity: .8; transform: translateY(-1px) scale(1); } }
 @keyframes gm-night { 0%,100% { opacity: .15; transform: translateY(2px); } 50% { opacity: .55; transform: translateY(-1px); } }
 
+/* Screen reflections stay inside the glass and move with the chassis. */
+.glass-mascot .gm-lens-scan { opacity: 0; }
+.glass-mascot[data-expressive="true"][data-mascot-state="thinking"] .gm-lens-scan { animation: gm-scan 3.4s cubic-bezier(.45,0,.25,1) infinite; }
+.glass-mascot[data-expressive="true"][data-mascot-mood="joy"] .gm-lens-scan { animation: gm-scan .85s ease-out 70ms 1; }
+.glass-mascot[data-expressive="true"][data-gesture="press"] .gm-eye-shape { transform: scaleY(.42); }
+.glass-mascot[data-expressive="true"] .gm-eye-shape { transform-box: fill-box; transform-origin: center; transition: transform .18s cubic-bezier(.2,.8,.2,1); }
+.glass-mascot .gm-lens-pulse { transform-box: fill-box; transform-origin: center; animation: gm-pulse .52s ease-out 60ms both; }
+@keyframes gm-scan {
+  0% { transform: translateX(23px); opacity: 0; }
+  15% { opacity: .8; }
+  53% { opacity: .6; }
+  74%,100% { transform: translateX(99px); opacity: 0; }
+}
+@keyframes gm-pulse {
+  0% { transform: scale(.65); opacity: 0; }
+  18% { opacity: .65; }
+  100% { transform: scale(4.5); opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .glass-mascot .gm-shell { transition: none; }
+  .glass-mascot .gm-shell, .glass-mascot[data-expressive="true"] .gm-eye-shape { transition: none; }
+  .glass-mascot .gm-lens-pulse,
+  .glass-mascot[data-expressive="true"][data-mascot-state] .gm-lens-scan { animation: none; opacity: 0; }
   .glass-mascot[data-mascot-mood] .gm-story,
   .glass-mascot[data-playful="true"][data-mascot-mood] .gm-story,
   .glass-mascot[data-mascot-mood] .gm-mouth,

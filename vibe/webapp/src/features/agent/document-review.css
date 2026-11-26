@@ -2,9 +2,8 @@
 .sr-page:has(.sr-document-review) { max-width: none; padding: 1rem 1.25rem; gap: .6rem; }
 .sr-workspace:has(.sr-document-review), .sr-view:has(.sr-document-review) { gap: .6rem; }
 .sr-reader-topbar { align-items: center; padding: .1rem 0; }
-.sr-reader-topbar .sr-page-title { display: flex; align-items: center; gap: .65rem; scroll-margin-block-start: 4.25rem; }
-.sr-workspace .sr-reader-topbar h1 { font-size: 1.55rem; letter-spacing: -.025em; line-height: 1.25; font-weight: 700; }
-.sr-reader-topbar .sr-report-mascot { display: none; }
+.sr-reader-topbar .sr-page-title { min-width: 0; display: grid; gap: .28rem; scroll-margin-block-start: 4.25rem; }
+.sr-workspace .sr-reader-topbar h1 { font-size: clamp(1.45rem, 2.8vw, 2.55rem); letter-spacing: -.04em; line-height: 1.18; font-weight: 530; overflow-wrap: anywhere; }
 .sr-reader-topbar .sr-primary { min-height: 2.3rem; }
 .sr-document-review { gap: .6rem; }
 .sr-document-review .sr-reader-overview { display: flex; flex-wrap: wrap; gap: .5rem .9rem; align-items: center; padding: .55rem .8rem; background: var(--sr-surface); border: 1px solid var(--sr-line); border-radius: .55rem; }
@@ -439,3 +438,109 @@ body:has(.sr-reader-layout[data-focus-mode=true]) { overflow: hidden; }
 .sr-document-review .sr-finding-filter button { border-radius: 999px; }
 .sr-document-review .sr-reader-row[data-selected=true] { border-radius: .65rem; background: var(--sr-violet-soft); }
 .sr-document-zoom, .sr-document-fullscreen, .sr-overview-toggle { border-radius: .7rem; }
+
+/* Priority bands keep the queue readable while the original remains in view. */
+.sr-queue-group + .sr-queue-group { margin-block-start: .65rem; }
+.sr-queue-group-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .45rem;
+  min-height: 1.9rem;
+  padding: .3rem .55rem;
+  border-radius: .38rem;
+  background: var(--sr-canvas);
+  color: var(--sr-muted);
+}
+.sr-queue-group-heading h4 { font-weight: 650; }
+.sr-queue-group-heading > span:last-child { font-variant-numeric: tabular-nums; }
+.sr-queue-group-dot { width: .42rem; height: .42rem; border-radius: 50%; background: var(--sr-priority-ink, var(--sr-muted)); }
+.sr-finding-list-row[data-selected=true] { border-inline-start: 2px solid var(--sr-violet); }
+.sr-document-review .sr-toolbar-verdict:hover { color: var(--sr-violet); background: var(--sr-violet-soft); }
+
+/* The report reads like a marked-up sheet. The queue opens in the margin. */
+.sr-document-review .sr-reader-layout:not([data-focus-mode=true]) {
+  border-radius: 1.35rem;
+  box-shadow: none;
+}
+.sr-document-review .sr-review-toolbar {
+  background: var(--sr-surface);
+  backdrop-filter: none;
+}
+.sr-document-review .sr-review-toolbar .sr-reader-tabs button {
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+}
+.sr-document-review .sr-review-toolbar .sr-reader-tabs button[aria-pressed=true] {
+  background: transparent;
+  border-bottom-color: var(--sr-violet);
+}
+.sr-document-review .sr-desk-queue-toggle { display: none; flex: none; margin-inline-start: auto; }
+.sr-document-review .sr-reader-document {
+  --sr-paper: #fdfbff;
+  --sr-ink-on-paper: #282033;
+  background: color-mix(in srgb, var(--sr-canvas) 85%, var(--sr-violet-soft));
+}
+.sr-document-review .sr-document-sheet {
+  background: var(--sr-paper);
+  border-radius: 0;
+}
+.sr-document-review .sr-document-line-content { color: var(--sr-ink-on-paper); }
+.sr-document-review .sr-document-text-line[data-heading=true] .sr-document-line-content {
+  font-family: Georgia, 'Times New Roman', serif;
+  letter-spacing: -.015em;
+}
+.sr-document-review .sr-document-text-line[data-heading=true]:first-child .sr-document-line-content {
+  font-size: calc(1.58rem * var(--sr-doc-scale,1));
+  line-height: 1.22;
+}
+.sr-document-review .sr-document-text-line[data-highlighted=true] {
+  box-shadow: inset 2px 0 #7825df;
+  background: #f6effd;
+}
+.sr-document-review .sr-document-highlight { background: transparent; border-bottom: 2px solid #7825df; }
+.sr-document-review .sr-pdf-active-mark { outline: none; border-bottom: 2px solid #7825df; }
+.sr-document-review .sr-reader-inspector {
+  background: color-mix(in srgb, var(--sr-violet-soft) 55%, var(--sr-surface));
+}
+.sr-margin-heading { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .85rem; }
+.sr-margin-mascot { flex: none; width: 2.65rem; height: 2.65rem; }
+.sr-document-review .sr-inspector-content {
+  position: relative;
+  padding: .9rem;
+  border: 1px solid var(--sr-line);
+  border-radius: .85rem;
+  background: var(--sr-surface);
+}
+.sr-document-review .sr-inspector-content::before {
+  content: '';
+  position: absolute;
+  inset: 1.35rem 100% auto auto;
+  width: .55rem;
+  height: 1px;
+  background: var(--sr-violet);
+}
+.sr-document-review .sr-inspector-title { font-weight: 560; }
+.sr-document-review .sr-inspector-meta { flex-wrap: wrap; }
+.sr-document-review .sr-inspector-ids { color: var(--sr-violet); font-variant-numeric: tabular-nums; font-weight: 600; overflow-wrap: anywhere; }
+
+@container sr-review-reader (width > 820px) {
+  .sr-document-review .sr-reader-layout:not([data-focus-mode=true]):not([data-tab=graph]) {
+    grid-template-areas: 'toolbar toolbar' 'document inspector';
+    grid-template-columns: minmax(0, 1fr) clamp(17rem, 29%, 23rem);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .sr-document-review .sr-reader-layout:not([data-focus-mode=true]) .sr-desk-queue-toggle { display: inline-flex; }
+  .sr-document-review .sr-reader-layout:not([data-focus-mode=true]) .sr-toolbar-verdict { margin-inline-start: 0; }
+  .sr-document-review .sr-reader-layout:not([data-focus-mode=true]) .sr-reader-queue {
+    grid-area: inspector;
+    display: none;
+    border-inline: 1px solid var(--sr-line);
+    border-inline-end: 0;
+  }
+  .sr-document-review .sr-reader-layout[data-tab=findings][data-queue-open=true]:not([data-focus-mode=true]) .sr-reader-queue { display: flex; }
+  .sr-document-review .sr-reader-layout[data-queue-open=true]:not([data-focus-mode=true]) .sr-reader-inspector { display: none; }
+  .sr-document-review .sr-reader-layout:not([data-focus-mode=true]) .sr-reader-inspector { border-top: 0; }
+  .sr-document-review .sr-reader-layout:not([data-focus-mode=true]) .sr-reader-document { background: color-mix(in srgb, var(--sr-violet-soft) 43%, var(--sr-canvas)); }
+  .sr-document-review .sr-inspector-scroll { padding: 1.3rem clamp(1rem, 2cqi, 1.65rem); }
+}

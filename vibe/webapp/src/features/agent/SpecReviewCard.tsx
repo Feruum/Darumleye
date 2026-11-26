@@ -152,13 +152,14 @@ export function SpecReviewCard({ active = true, onStartFix }: { active?: boolean
   return <section className="sr-workspace sr-workflow" lang="ru" aria-label="Проверка требований">
     <header className={view === 'report' || view === 'example' ? 'sr-heading sr-reader-topbar' : 'sr-heading'}>
       <div ref={titleRef} tabIndex={-1} className="sr-page-title">
+        {view === 'report' && <Typography as="p" variant="caption" tone="muted">Проверки / Результат</Typography>}
         <Typography as="h1" variant="h1">{
-          view === 'example' ? 'Пример отчёта' : view === 'report' ? 'Результат проверки' : 'Проверка ТЗ'
+          view === 'example' ? 'Пример отчёта' : view === 'report' && report ? report.filename : 'Проверка ТЗ'
         }</Typography>
       </div>
       {view === 'report' && report && <div className="sr-heading-actions">
         <Button variant="outline" onClick={() => downloadReview(report)} type="button"><HugeiconsIcon icon={ArrowDown01Icon} size={17} aria-hidden />Скачать отчёт</Button>
-        {canFixReview(report) && <Button className="sr-primary sr-press" type="button" onClick={() => { const id = report.passport.run_id; if (id) onStartFix(id, file, references) }}>Начать доработку <HugeiconsIcon icon={ArrowRight01Icon} size={17} aria-hidden /></Button>}
+        {canFixReview(report) && <Button className="sr-primary sr-press" type="button" onClick={() => { const id = report.passport.run_id; if (id) onStartFix(id, file, references) }}>Доработать ТЗ <HugeiconsIcon icon={ArrowRight01Icon} size={17} aria-hidden /></Button>}
       </div>}
       {view === 'example' && <Button variant="outline" type="button" onClick={() => setExampleOpen(false)}><HugeiconsIcon icon={ArrowLeft01Icon} size={17} aria-hidden />К моей проверке</Button>}
     </header>

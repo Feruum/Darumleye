@@ -376,8 +376,8 @@ export function ReviewFixWorkspace({ active, report, transport, ownerId, archive
           <Textarea value={clarifications[id] ?? ''} maxLength={2000} disabled={inputsLocked} onChange={event => setClarifications(previous => ({ ...previous, [id]: event.target.value }))} placeholder="Укажите согласованное правило или ответ на вопрос" />
         </label>}
         <div className="sr-fix-actions">
-          {!hasAccepted && <Button type="button" onClick={() => void generate()} disabled={inputsLocked}>{busy === 'proposal' ? 'Готовим предложение…' : proposal ? 'Уточнить предложение' : 'Предложить исправление'}</Button>}
-          {proposal?.status === 'patch' && !hasAccepted && <Button type="button" variant="outline" disabled={inputsLocked} onClick={accept}>Принять правку</Button>}
+          {proposal?.status === 'patch' && !hasAccepted && <Button type="button" disabled={inputsLocked} onClick={accept}>Принять правку</Button>}
+          {!hasAccepted && <Button type="button" variant={proposal?.status === 'patch' ? 'outline' : 'default'} onClick={() => void generate()} disabled={inputsLocked}>{busy === 'proposal' ? 'Готовим предложение…' : proposal ? 'Уточнить предложение' : 'Предложить исправление'}</Button>}
           {proposal && <Button type="button" variant="ghost" disabled={inputsLocked || (declined[id] && !hasAccepted)} onClick={reject}>{hasAccepted ? 'Отменить принятие' : 'Отклонить'}</Button>}
           {hasAccepted && <Typography as="span" variant="caption" className="sr-tag" data-tone="pass">Принято</Typography>}
           {busy === 'proposal' && <Button type="button" variant="outline" onClick={() => controller.current?.abort()}>Отмена</Button>}
@@ -386,6 +386,7 @@ export function ReviewFixWorkspace({ active, report, transport, ownerId, archive
         </div>
         <div className="sr-panel sr-fix-verification">
           <Typography as="h3" variant="bodySmMedium">Принятые правки: {approvedCount} из {report.findings.length}</Typography>
+          {!draft && !draftError && !pendingRepeat && <Typography as="p" variant="bodySm" tone="muted">Примите хотя бы одну правку, чтобы скачать новую версию или проверить её повторно.</Typography>}
           {draftError && <Alert variant="destructive"><AlertDescription>{draftError}</AlertDescription></Alert>}
           {draft && <details><Typography as="summary" variant="bodySmMedium">Предпросмотр доработанного ТЗ</Typography><Typography as="pre" variant="bodySm" className="sr-fix-preview">{draft}</Typography></details>}
           {originalSources.length > 0 && <ReviewReferenceRestorePanel sources={originalSources} restore={referenceRestore} restoring={restoringReferences} documentOnly={documentOnly} disabled={inputsLocked} onSelectFiles={files => void restoreOriginalFiles(files)} onDocumentOnly={setDocumentOnly} />}
