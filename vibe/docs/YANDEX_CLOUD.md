@@ -1,5 +1,7 @@
 # Terraform в Yandex Cloud
 
+**Статус 27.11.2026:** Yandex Cloud не нужен для текущей сдачи Darumleye. Ниже исторический runbook; отдельный deployment для AI-сервиса, очереди и OCR не подтверждён. Локальный путь — [COMMANDS](COMMANDS.md).
+
 > Устаревшая инструкция для прежнего Prisma/cloud deployment. Текущий поддерживаемый путь — локальный Drizzle/FastAPI-стек из корневого [README](../README.md); эта инструкция не обновлялась и не проверялась.
 
 Используй этот путь для пользователей в России или требования хранить данные в России, согласно [CHECKLIST.md](../CHECKLIST.md). Общие правила — в [DEPLOYMENT.md](DEPLOYMENT.md), код — в [`infra/yandex`](../infra/yandex).

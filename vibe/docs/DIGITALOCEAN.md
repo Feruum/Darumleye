@@ -1,5 +1,7 @@
 # Terraform в DigitalOcean
 
+**Статус 27.11.2026:** DigitalOcean не нужен для текущей сдачи Darumleye. Ниже исторический runbook; Terraform/app deployment не проверены для действующего AI-сервиса, очереди или OCR. Локальный путь — [COMMANDS](COMMANDS.md).
+
 > Устаревшая инструкция для прежнего Prisma/cloud deployment. Текущий поддерживаемый путь — локальный Drizzle/FastAPI-стек из корневого [README](../README.md); эта инструкция не обновлялась и не проверялась.
 
 Выбирай этот путь для аудитории вне России без требования хранить данные в России, согласно [CHECKLIST.md](../CHECKLIST.md). Общие правила — в [DEPLOYMENT.md](DEPLOYMENT.md), код — в [`infra/digitalocean`](../infra/digitalocean).

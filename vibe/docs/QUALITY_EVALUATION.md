@@ -8,6 +8,63 @@ The organizer supplies a source document and review rubric, not labeled ground t
 
 For a clearly labeled hackathon planning hypothesis based on public Kazakhstan wage statistics and comparable API tariffs, see [the provisional business-value scenario](BUSINESS_VALUE.ru.md). It is not an observed savings measurement.
 
+## Final organizer run, 27 November 2026
+
+This is the final acceptance result, distinct from all earlier experiments below. It was generated from the official unchanged `requirements.md` by GPT-6 Luna through OpenRouter in paired mode (`multi_agent`), full fact profile, Z3 enabled, general reasoning `low`, adjudication `auto`, primary concurrency 9, no external references or Drex.
+
+- Source: [organizer case](https://github.com/BCC-HUB/ai-requirements-validator-task/blob/main/docs/requirements.md), 198 numbered lines, SHA-256 `e7dae55e5453a250d93e335f5ff9c7f775f4457ccddd333f4a67e47b20d74381`.
+- Report passport: commit `300fee84a59800a709def0728be67dd101277251`, run `2c5864d4-27cb-4b8b-9788-8d89c37b7358`; JSON SHA-256 `996e5797f51fcbbf5fb720b802cce747a63e65b056e15475dc25bdb7b6a0377e`.
+- Local delivery evidence (ignored, not in a clean clone): `output/submission/report-final-published.json`, `report-final-published-audit.json`, `report-final-quality-review.ru.md`, `requirements-official.md`, and `run-metrics-published.json` in the same directory.
+
+| Metric | Observed result |
+| --- | ---: |
+| Extracted requirements / individual criteria | 49 / 441 |
+| Whole-set criteria / readiness checks | 6 / 15 |
+| Accepted findings | 17 |
+| Critical / High / Medium / Low | 2 / 2 / 10 / 3 |
+| Findings with validated original quotations | 17/17 |
+| Organizer structural audit | 33/33 |
+| Manually confirmed control topics | 5/5 |
+| Evidence Graph | 218 nodes / 463 edges |
+| Adjudication candidates | 10/10 (9 confirmed, 1 rejected) |
+| Uncertain criterion assessments | 3 |
+| Verdict | `not_ready` |
+
+The two critical findings concern the mandatory settings-read contract that instead describes saving (lines 52, 103–120), and contradictory purchase-date versus posting-date month assignment (38, 64). The control subset additionally confirms the rejection-response contract, monthly push limit versus a changed threshold, and incompatible 200/201 success statuses. The explicit special-case 404 for foreign/missing cards was preserved rather than treated as a conflicting generic error rule. The human read-through also noted potential additional questions (e.g. purchase-to-posting delay, the accumulated amount shown by the UI, status/currency checks and notification enablement). It does not establish complete defect recall; the organizer supplies no exhaustive semantic gold set.
+
+This result followed a live analysis and additional model checks for changed stages. The final clean-checkout replay reused 49 accepted stage answers and made zero new model calls, reproducing findings and refreshing the passport. Across the fresh analysis and follow-up changed stage checks there were 114 new model calls and approximately $0.1573 of provider-reported cost, not one uninterrupted cold trial. No formal Z3 witness was produced on the official source. A separate live text-layer synthetic PDF completed with three requirements, two findings (one Critical) and 31/31 structural checks. OCR stress and end-to-end manual effort have not been established. Historical direct and legacy results are not an equal-budget measurement of the final code.
+
+Run the offline audit using the local delivery artifacts (no provider calls). Keep the original basename `requirements.md`: the audit checks it as part of source identity and passport.
+
+```bash
+uv run --project vibe/services/agent --frozen python vibe/services/agent/scripts/evaluate_spec_report.py \
+  --input output/submission/final-delivery/requirements.md \
+  --report output/submission/report-final-published.json \
+  --output .artifacts/official-final-audit.json --official
+```
+
+For a fresh independent live run from a clean checkout, use the separately downloaded source and the command in [Spec Review](SPEC_REVIEW.md#complete-organizer-evaluation). The number of defects and criterion counts need not repeat exactly on a fresh stochastic run.
+
+## Extended fact and formal profile pilot
+
+On 26 November, eight live runs compared the same two [extended synthetic cases](examples/quality-benchmark/extended/) with the same GPT-6 Luna model: two routes (`multi_agent` and `multi_agent_direct`) × two fact settings (`off`, `full` with Z3) × two documents, one trial per combination. Every report passed 31/31 structural checks. Each case had three pre-annotated root topics. Repeated topic hits are a semantic comparison against these labels; additional findings were not automatically counted as false positives.
+
+| Aggregate across four trials per profile | Off | Full |
+| --- | ---: | ---: |
+| Confirmed annotated topic hits | 12/12 | 12/12 |
+| Findings | 39 | 40 |
+| Repeated topic hits | 23 | 26 |
+| Correct maximum annotated severity | 10 | 9 |
+| Formal witnesses | 0 | 2 |
+| Measured summed process seconds | 215.599 | 204.890 |
+| Provider-reported dollars | 0.0644 | 0.0718 |
+| Input + output tokens | 288,660 | 350,334 |
+
+The full profile produced the explicit invoice counterexample in both routes (status Проверен, amount 50,000 tenge, conflicting approval/rejection outcomes), but no measurable topic-recall gain and more repetitions. This pilot motivated additional root-cause consolidation and criterion reconciliation. A subsequent offline replay reduced archived paired/direct invoice root groups 15→7 and 9→5 while preserving all 28 input observations each. The final paired official result is separately reported above. No final matched cold A/B across all three routes has been established. The pilot is not a blinded independent benchmark and has no statistical confidence estimate.
+
+Reproduce the matrix (fresh directories per profile): see [extended comparison commands](REVIEW_RETENTION.md#extended-synthetic-source-cases). Local original pilot summaries: `.artifacts/formal-comparison-20261126/` and `.artifacts/dedup-official-comparison-20261127/`. The gold files are committed; recorded provider reports remain local.
+
+
 ## Synthetic benchmark
 
 All four sources are fictional and distinct from the organizer case. Their labels are pedagogical, not a representative test corpus.
@@ -63,7 +120,7 @@ uv run --project vibe/services/agent --frozen python vibe/services/agent/scripts
 
 The output contains both scores and differences (after minus before). Track annotated defect IDs removed from or added to the source, missed persistent labels, extracted requirement count, extraction and review coverage, and finding count. Fewer findings alone do not prove improvement. A model can simply miss existing problems. The expert should review the final source and observations before accepting a correction.
 
-## Saved official report: observed results and limits
+## Saved official report: observed results and limits (historical, 25 November)
 
 An actual completed organizer-case report from 2026-11-25 is stored locally in ignored `.artifacts/organizer-eval/official-report.json`. The existing `official-eval.json`, `official-eval-summary.md` and `manual-rubric.json` document an independent structural and manual review of the original input. They have not been replaced. Exact identifiers:
 

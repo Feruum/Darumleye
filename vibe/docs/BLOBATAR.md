@@ -25,3 +25,7 @@ bun test website/build-contracts/static-build.test.ts
 The tests cover local rendering, distinct stable accounts, photo precedence, eyes and state classes, color mapping, and the landing's local asset references. The live preview verifies pointer response, color and motion independently of model calls.
 
 Primary references: [Blobatar documentation](https://blobatar.dev/docs), [React adapter source](https://github.com/Alain00/blobatar/tree/main/packages/react), and [upstream license](https://github.com/Alain00/blobatar/blob/main/LICENSE).
+
+## Product scope (2026-11-27)
+
+The character is presentation-only. Its waiting state reflects the local UI's active review/chat state, not an estimate of backend progress or a quality score. The durable job remains independent of animation and navigation. Historical pixel-art and glass concepts in `assets/` are design provenance rather than alternate active mascots. The current review and report behavior is documented in [Spec Review](SPEC_REVIEW.md).

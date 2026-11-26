@@ -1,5 +1,7 @@
 # Arc Free interface migration
 
+> Foundation history (October 2026). The current product is Darumleye Spec Review: the approved review, archive, evidence graph and correction screens are feature-owned compositions, not a replacement of the Arc controls. The October component-catalog inspection is a dated snapshot. See [current UI ownership](CHAT_UI.md) and [third-party notices](THIRD_PARTY.md).
+
 The 2026-10-16 migration makes official MIT Arc Free source the default UI for the active public site and signed-in workspace. Chat remains on assistant-ui 0.15.29. No Pro components, paid account, hosted UI service, or new backend is required.
 
 ## Implemented scope

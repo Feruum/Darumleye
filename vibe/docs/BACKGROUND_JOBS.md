@@ -1,6 +1,6 @@
 # Local background jobs
 
-This guide covers Bun backend background processes included in the local stack. Older instructions about DigitalOcean and Yandex timers and deployments do not apply to the active Hackathon Starter workflow.
+This guide covers Bun backend background processes included in the local stack. Older instructions about DigitalOcean and Yandex timers and deployments do not apply to the active Darumleye web workflow.
 
 ## Backend scheduler
 
@@ -56,3 +56,12 @@ The agent API commits each accepted primary review to its PostgreSQL `agent_spec
 ## Local operations
 
 Compose applies restart policies to infrastructure containers as defined in `docker-compose.yml`. App processes stop with `bun run dev`. Persistent data remains in Docker volumes until removed. Cloud timers, worker deployments, production alerts, Azure Service Bus, and Redis are outside the current setup. Design and verify those separately before enabling them.
+
+## Review recovery contract (2026-11-27)
+
+- Only one active review per owner and at most two across the agent service; the web active-processing allowance is 24 minutes, distinct from the 900-second multi-agent analysis limit.
+- The web client polls or cancels the existing job ID; it does not resend the file on refresh. The 90-second fenced lease protects against stale workers writing an archive after cancellation or takeover.
+- Terminal success and archive insertion are transactional. Temporary uploaded bytes are removed on terminal state; the completed source units and report remain in the owner’s archive. Validated checkpoints are removed after the terminal worker stops.
+- Standalone CLI supports explicit `--checkpoint-dir` and `--wait-rate-limit` but does not enter the durable web queue. A cached stage is revalidated against current input and schema rather than counted as a new model call.
+
+See [Spec Review web workspace](SPEC_REVIEW.md#web-workspace) for recovery and archive semantics, [Langfuse](LANGFUSE.md) for optional trace monitoring.

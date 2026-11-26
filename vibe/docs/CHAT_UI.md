@@ -1,6 +1,6 @@
 # Review chat interface
 
-The signed-in workspace exposes **Проверка ТЗ** at `/app/assistant` and a separate **Чат по проверкам** at `/app/chat`. `@assistant-ui/react` 0.15.29 owns the conversation lifecycle, composer, suggestions, copying, scrolling and cancellation. The user selects an already completed review; no second upload is needed.
+The signed-in Darumleye workspace exposes **Проверка ТЗ** at `/app/assistant` and a separate **Чат по проверкам** at `/app/chat`. `@assistant-ui/react` 0.15.29 owns the conversation lifecycle, composer, suggestions, copying, scrolling and cancellation. The user selects an already completed review; no second upload is needed.
 
 ## Data and ownership
 
@@ -22,6 +22,10 @@ The legacy `rag` module and private PDF/TXT document upload API remain available
 | `services/agent/src/agent/modules/review_chat.py` | Read-only review Q&A tool and instructions |
 
 On desktop the chat fills the available workspace; the message history scrolls independently and the composer stays at the bottom. On smaller screens the review list stacks above the chat. Send with Ctrl/Cmd+Enter or the button; suggestions fill the composer. No question can be sent before a completed review is selected. Blobatar uses the current message run state for waiting/streaming animation and follows the pointer on the welcome avatar and latest response. Reduced-motion preferences are respected. Existing Arc Free MIT controls and the shared `Typography` own visual primitives. No assistant-ui Cloud account is required.
+
+## Current review views
+
+`SpecReviewReport.tsx` displays prioritized deduplicated findings, mandatory criterion matrices, readiness, clarification questions and the run passport. `EvidenceGraphExplorer.tsx` links findings to expert observations and exact source locations; rejected observations are traceable without being counted as accepted defects. `ReviewRunProvider.tsx` owns the durable job workflow and cancellation. `ArchivedReviewWorkspace.tsx` shows persisted reviews; `ReviewFixWorkspace.tsx` handles source-anchored draft fixes and re-review. A paused browser view is not cancellation of a running server job. See [web workspace](SPEC_REVIEW.md#web-workspace).
 
 ## Local checks
 

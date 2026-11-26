@@ -74,3 +74,7 @@ docker build -t templatehack-agent-check:local services/agent
 ```
 
 The helper mounts the current service source read-only and uses the image's locked dependencies. It does not rebuild or restart the running development agent.
+
+## Current separation of review and retrieval (2026-11-27)
+
+The default primary review is full-document extraction + five independent experts + evidence reconciliation; the optional reference RAG retrieves bounded evidence for selected normative files. Review chat is a separate `review_chat` module backed by the owner-scoped archive and does not require general document ingestion, embeddings, or another upload. General `rag` remains a separate module. Source facts and Z3 are not RAG; their bounded context is derived directly from the extracted primary document. See [architecture](ARCHITECTURE.md) and [reference scope](REGULATORY_CONTEXT.md).

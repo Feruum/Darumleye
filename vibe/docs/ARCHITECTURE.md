@@ -1,6 +1,6 @@
-# Hackathon Starter Architecture
+# Darumleye / Spec Review architecture
 
-The active project mode is local development. React/Vite serves the pre-rendered public site, the Vite app serves the signed-in workspace, Bun/Hono owns authentication and API access, and FastAPI/LangGraph hosts modular AI agents. `bun run dev` starts the applications and local stores on loopback addresses. Cloud infrastructure, Azure, the Go authorization service, and the mobile app are outside this launch path.
+Updated 2026-11-27. The supported hackathon delivery is the standalone document-review CLI and the local authenticated web workspace; neither requires a cloud deployment. The active web project mode is local development. React/Vite serves the pre-rendered public site, the Vite app serves the signed-in workspace, Bun/Hono owns authentication and API access, and FastAPI/LangGraph hosts modular AI agents. `bun run dev` starts the applications and local stores on loopback addresses. Cloud infrastructure, Azure, the Go authorization service, and the mobile app are outside this launch path.
 
 ## RAG chat interface libraries
 
@@ -52,7 +52,11 @@ Browser-facing routes:
 | `GET /api/agent/modules` | List enabled modules |
 | `GET /api/agent/documents` | List the current user's documents |
 | `POST /api/agent/documents` | Upload PDF/TXT multipart file, up to 25 MiB |
-| `POST /api/agent/spec-reviews` | Review PDF/TXT/MD, up to 5 MiB; return verified structured report and Markdown |
+| `POST /api/agent/spec-review-jobs` | Submit a durable review (HTTP 202), PDF/TXT/MD/DOCX/XLSX/CSV/JPG/JPEG/PNG, up to 25 MiB |
+| `GET /api/agent/spec-review-jobs/:jobId` / `DELETE` | Poll or cancel an owner-scoped review job |
+| `POST /api/agent/spec-reviews` | Synchronous review using the same formats and limits; CLI is also synchronous |
+| `GET /api/agent/spec-reviews` / `GET /api/agent/spec-reviews/:reviewId` | List completed owner-scoped reports / get extracted source and report |
+| `GET` / `POST /api/agent/spec-reviews/:reviewId/references/:sourceId` | Read archived reference content where available / restore matching reference source |
 | `POST /api/agent/spec-reviews/:reviewId/fix` | Propose a non-mutating correction or clarification for one finding in an owner-scoped archived review |
 | `GET /api/agent/documents/:documentId` | Read indexing status |
 | `DELETE /api/agent/documents/:documentId` | Delete a document and its vectors |
@@ -66,7 +70,7 @@ Follow the existing context boundaries: `transport` handles HTTP, `application` 
 
 Drizzle owns the Bun app schema. The table definitions are in `backend/src/db-schema.ts`; reviewed SQL migrations are in `backend/drizzle/`. Change the schema, generate a migration with `bun run --cwd backend db:generate`, review the SQL, and apply it with `bun run --cwd backend db:migrate`. Use PostgreSQL enums only for closed value sets. PostgreSQL 18 provides the UUIDv7 default used by this schema.
 
-The Python service uses a separate `agent` database on the same local PostgreSQL server. SQLAlchemy owns document metadata, explicit personal notes, and LangGraph checkpoints. FastAPI creates missing tables from SQLAlchemy metadata on startup. Vectors live in Chroma; uploaded files live in the agent's local volume. Do not mix these tables into the Drizzle schema for the web app.
+The Python service uses a separate `agent` database on the same local PostgreSQL server. SQLAlchemy owns document metadata, explicit personal notes, LangGraph checkpoints, `agent_completed_reviews`, and `agent_spec_review_jobs`. The archive stores extracted source and validated report, including the graph, not the original binary or reference attachments. Pending jobs temporarily store bounded input bytes; validated per-stage review checkpoints live in the agent data volume. FastAPI creates missing tables from SQLAlchemy metadata on startup. Vectors live in Chroma; uploaded files live in the agent's local volume. Do not mix these tables into the Drizzle schema for the web app.
 
 ## Agent modules
 
@@ -76,11 +80,15 @@ An `AgentModule` definition owns its instructions, tools, and routing keywords. 
 
 The first module, `rag`, accepts PDF and TXT files. It stores files in the agent's local storage, metadata and progress in the `agent` database, and embeddings/chunks in local Chroma. Dense and BM25 keyword retrieval use the same owner filter and merge through reciprocal rank fusion. Docker volumes preserve this data across local restarts.
 
-Specification review offers a classic pipeline and two LangGraph routes. New submissions default to `multi_agent` on GPT-6 Luna. This route sends the expert results through three paired validators. In `multi_agent_direct`, the expert results go straight to the global evidence validator. Both use independent experts, mandatory coverage checks, an Evidence Graph, Finalizer, validated checkpoints, the durable review queue and the PostgreSQL archive. Select `legacy` for the classic pipeline, which checks individual requirements and the specification as a whole. Reports and queued jobs retain their selected mode. An archive entry without a mode repeats in `legacy`. The interactive chat uses a separate graph. [Spec Review architecture](MULTI_AGENT_REVIEW.ru.md)
+Specification review offers a classic pipeline and two LangGraph routes. New submissions default to `multi_agent` on GPT-6 Luna. This route sends the expert results through three paired validators. In `multi_agent_direct`, the expert results go straight to the global evidence validator. Both use five independent experts, deterministic source checks, indexed source facts, optional bounded Z3 analysis, a global evidence validator, root-cause consolidation (Finalizer), severity/fact adjudication, requirement–criterion reconciliation, and an Evidence Graph. Web execution uses validated checkpoints, the durable review queue and the PostgreSQL archive. Rejected findings remain traceable and do not count as confirmed defects. Select `legacy` for the classic pipeline, which checks individual requirements and the specification as a whole. Reports and queued jobs retain their selected mode. An archive entry without a mode repeats in `legacy`. The interactive chat uses a separate graph. [Spec Review architecture](MULTI_AGENT_REVIEW.ru.md)
 
 When the user selects references, an owner- and content-filtered Chroma collection caches numbered source passages. Per-requirement BM25/vector retrieval and optional Drex reranking feed a bounded comparison. Successful web reviews store their extracted source and validated report in PostgreSQL. The review-chat module retrieves passages from one owner-verified review. See [Spec Review](SPEC_REVIEW.md) and [Regulatory context](REGULATORY_CONTEXT.md).
 
 Personal notes use authenticated `/api/agent/memories` list/create/delete routes through Bun. Only explicit user actions write memory; the agent's `search_user_memory` tool is read-only and receives its owner from graph state. Notes are context/preferences and do not become document citation sources. See [RAG_CONSOLIDATION.md](RAG_CONSOLIDATION.md) for limits, source disposition, and image update instructions.
+
+## Review severity and validation
+
+A critical finding is a grounded contradiction, essential omission or severe risk that blocks an obligatory implementation or acceptance decision; it is not restricted to demonstrated monetary loss. High, medium and low represent decreasing scope and impact. Final adjudication applies the rubric after deduplication, may revise severity, and can reject only with checked counterevidence. The final readiness and counts are computed by code. See [current evaluation](QUALITY_EVALUATION.md#final-organizer-run-27-november-2026) and [retention](REVIEW_RETENTION.md).
 
 ## LLM settings and privacy
 

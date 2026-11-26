@@ -4,6 +4,8 @@ Spec Review is the FinTech requirements validator built for the [BCC-HUB × MNU 
 
 ## Pipeline
 
+The current system is described in [multi-agent architecture](MULTI_AGENT_REVIEW.ru.md); the diagram below depicts the retained **legacy** core pipeline rather than the default routes. For the default paired and direct routes, see the [current pipeline diagram](uml/spec-review-pipeline.svg).
+
 New reviews use the **`multi_agent` workflow by default**, on GPT-6 Luna in the selected configuration. Five independent experts, the optional Reference Inspector, three paired validators, global evidence consolidation and the Finalizer produce a verified Evidence Graph; see the [current Spec Review 2.0 architecture](MULTI_AGENT_REVIEW.ru.md). Select `multi_agent_direct` to pass observations directly from the experts to global validation. Both multi-agent routes include the Finalizer and downstream checks. The CLI and API also accept `legacy` for the classic pipeline shown below, which uses the same document parser and citation checks.
 
 All three modes default to at most nine simultaneous primary model calls per review. Set `AGENT_SPEC_REVIEW_CONCURRENCY` to a positive integer to change that limit. When reference documents are selected, the Reference Inspector has one independent slot, allowing up to ten simultaneous calls at the default setting. Actual concurrency depends on how many tasks are ready.
@@ -94,6 +96,10 @@ uv run --project vibe/services/agent --frozen python vibe/services/agent/scripts
 
 This checks exact source identity, complete criterion matrices, evidence, references, recomputed statistics, readiness, Russian report structure, and Drex ID coverage when enabled. It does not claim semantic precision/recall without a labeled gold set.
 
+### Current result (27 November 2026)
+
+The final organizer report in paired mode contains 49 requirements, 441 individual checks, 6 set checks and 15 readiness checks. There are 17 findings (2 critical, 2 high, 10 medium, 3 low), 17/17 checked citations and 33/33 structural checks. The arbiter resolved 10 candidates, rejecting one with verified counterevidence; three criterion assessments remain uncertain. The outcome is `not_ready`. This is not a measured precision/recall score. See [evaluation and source identity](QUALITY_EVALUATION.md#final-organizer-run-27-november-2026).
+
 ## Independent decision review with Nace Drex
 
 Set `AGENT_SPEC_REVIEW_USE_NACE=true` and `NACE_API_KEY` in the same `.env` used by the command (or in `vibe/.env` for the web service). Keep the chat-model settings in place. The default decision model is `drex-latest`; optionally select `drex-max-finance` if available to the account. `AGENT_NACE_TIMEOUT_SECONDS` defaults to 8 seconds.
@@ -145,7 +151,7 @@ uv run --project vibe/services/agent --frozen python vibe/services/agent/scripts
 
 Run the same input with `--review-mode legacy`, `--review-mode multi_agent` and `--review-mode multi_agent_direct`. Use separate output files for each trial.
 
-Repeat for all four source/annotation pairs using distinct report paths. The offline scorer verifies source SHA-256 and matches defect labels one-to-one by accepted kind, line range and exact literal quotation anchors. It also matches distinct extracted requirements one-to-one against annotated obligations by original ID and quote anchors, and checks citation and criterion coverage. The comparison command reports before/after changes; fewer findings alone do not prove a better specification. These small, non-exhaustive annotations measure agreement with the labels, not semantic precision or general model accuracy. Unmatched observations need expert review; recall is undefined for an empty gold set. See [QUALITY_EVALUATION.md](QUALITY_EVALUATION.md) for benchmark commands, observed official-run limits, and controlled manual/assisted effort and cost measurements. No new synthetic live model run is claimed here.
+Repeat for all four source/annotation pairs using distinct report paths. The offline scorer verifies source SHA-256 and matches defect labels one-to-one by accepted kind, line range and exact literal quotation anchors. It also matches distinct extracted requirements one-to-one against annotated obligations by original ID and quote anchors, and checks citation and criterion coverage. The comparison command reports before/after changes; fewer findings alone do not prove a better specification. These small, non-exhaustive annotations measure agreement with the labels, not semantic precision or general model accuracy. Unmatched observations need expert review; recall is undefined for an empty gold set. See [QUALITY_EVALUATION.md](QUALITY_EVALUATION.md) for benchmark commands, observed official-run limits, and controlled manual/assisted effort and cost measurements. The extended, separately labeled live pilot and its limitations are recorded in [quality evaluation](QUALITY_EVALUATION.md#extended-fact-and-formal-profile-pilot).
 
 ## Limits and verification
 

@@ -69,3 +69,7 @@ AGENT_SPEC_REVIEW_FACT_PROFILE=full AGENT_SPEC_REVIEW_USE_Z3=true \
 ```
 
 Repeat with `AGENT_SPEC_REVIEW_FACT_PROFILE=off`, `AGENT_SPEC_REVIEW_USE_Z3=false`, and a fresh output directory to measure a control profile. A single trial per configuration is a pilot, not an estimate of average model quality.
+
+## Observed retention and current evidence
+
+Historical offline replay of the deterministic root-consolidation step (2026-11-27) reduced the earlier invoice-routing paired groups from 15 to 7 and direct groups from 9 to 5, retaining all 28 original observations in each. An earlier official report changed from 18 to 17 groups, retaining 26 observations; another 23-group official report was unchanged. This isolates a code step and is not a new cold model evaluation. The subsequent final official paired run contains 17 findings, 218 nodes and 463 edges; 10 candidates went through adjudication (9 confirmed, 1 rejected). Three assessment rows remain uncertain. An independent labeled corpus is still needed to quantify root recall. See [the final evaluation](QUALITY_EVALUATION.md#final-organizer-run-27-november-2026) and [the extended live pilot](QUALITY_EVALUATION.md#extended-fact-and-formal-profile-pilot).

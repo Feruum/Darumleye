@@ -106,3 +106,15 @@ Compose volumes preserve PostgreSQL, Chroma, and agent files. Do not run `docker
 ## Inactive checks
 
 Mobile Maestro, Terraform deployments, cloud smoke tests, Azure, Go auth, and external production accounts are outside this starter's local test workflow. Old scripts may remain in the repository; check them against the current local docs and package scripts before use.
+
+## Requirements-review verification
+
+For targeted code-only review checks from `vibe/services/agent/`:
+
+```bash
+uv run --frozen pytest -q tests/test_spec_multi_agent.py tests/test_spec_code_checks.py \
+  tests/test_spec_review_facts.py tests/test_spec_review_formal.py tests/test_review_retention.py \
+  tests/test_spec_stage_retry.py tests/test_spec_expert_validation_split.py tests/test_quality_benchmark.py
+```
+
+For input format, job, checkpoint and CLI regressions, select `test_spec_document_formats.py`, `test_spec_document_recovery.py`, `test_spec_photo_documents.py`, `test_spec_review_jobs.py`, `test_spec_eval_checkpoint.py` and `test_spec_review_cli_ux.py`. Native OCR cases need Poppler/Tesseract and language packs; web flows involving durable jobs need a distinct agent test database. For a provider-backed validation, run the CLI and `evaluate_spec_report.py --official` against the exact organizer input; see [current results](QUALITY_EVALUATION.md#final-organizer-run-27-november-2026). These scopes do not alone prove semantic accuracy or full integration success.

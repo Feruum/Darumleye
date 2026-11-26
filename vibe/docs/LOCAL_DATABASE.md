@@ -42,13 +42,17 @@ The script starts Compose services `postgres`, `chroma`, and `agent`. It applies
 | Chroma | `localhost:8000` | `CHROMA_PORT` |
 | FastAPI agent | `localhost:8001` | `AGENT_PORT` |
 
-PostgreSQL hosts two databases: `web_app_demo` for Bun and `agent` for document metadata and LangGraph checkpoints. `scripts/docker/create-agent-database.sh` creates the agent database on the first PostgreSQL volume initialization. FastAPI initializes its SQLAlchemy tables at startup.
+PostgreSQL hosts two databases: `web_app_demo` for Bun and `agent` for document metadata, private notes, chat checkpoints, completed reviews and durable specification-review jobs. `scripts/docker/create-agent-database.sh` creates the agent database on the first PostgreSQL volume initialization. FastAPI initializes its SQLAlchemy tables at startup.
 
 Data is persisted in `postgres_18_data`, `chroma_1_3_data`, and `agent_local_data`. Stopping `bun run dev` stops the app processes but leaves the containers and data. Stop only the infrastructure with:
 
 ```powershell
 docker compose stop postgres chroma agent
 ```
+
+## Review data and recovery
+
+`agent_completed_reviews` stores the owner-scoped extracted source and validated report JSON (including Evidence Graph). `agent_spec_review_jobs` temporarily stores accepted work, binary inputs, job state and leases. The agent volume `/data` also contains validated stage checkpoints; preserve it together with PostgreSQL when recovering an interrupted review. Chroma holds general RAG and explicitly selected reference passages, not the primary review archive. Archived original PDF/Office and reference binaries are not retained. The standalone document-only CLI can run without any of these services.
 
 ## Drizzle migrations
 

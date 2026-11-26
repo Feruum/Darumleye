@@ -1,5 +1,5 @@
 digraph SpecReview {
-  graph [rankdir=TB, bgcolor="#ffffff", margin=0.25, pad=0.25, nodesep=0.32, ranksep=0.48, splines=polyline, fontname="DejaVu Sans", label="SPEC REVIEW  /  Архитектура компонентов", labelloc=t, fontsize=22, fontcolor="#29213d", compound=true];
+  graph [rankdir=TB, bgcolor="#ffffff", margin=0.25, pad=0.25, nodesep=0.32, ranksep=0.48, splines=polyline, fontname="DejaVu Sans", label="DARUMLEYE  /  Архитектура компонентов", labelloc=t, fontsize=22, fontcolor="#29213d", compound=true];
   node [shape=box, style="rounded,filled", color="#b7aacd", fillcolor="#f8f6fc", fontcolor="#29213d", penwidth=1.3, fontname="DejaVu Sans", fontsize=12, margin="0.18,0.11"];
   edge [color="#675a80", fontname="DejaVu Sans", fontsize=9, fontcolor="#514665", arrowsize=0.7];
   User [shape=oval, label="Аналитик / QA", fillcolor="#ece4fc"];
@@ -14,13 +14,14 @@ digraph SpecReview {
   }
   subgraph cluster_ai { label="AI SERVICE  ·  PYTHON / FASTAPI"; color="#9b83cb"; style="rounded"; fontsize=11; fontcolor="#6a547e";
     Fast [label="FastAPI\nInternal endpoints", fillcolor="#eae1fb", color="#8e70c6"];
-    Core [label="Full-document Spec Review\nExtraction · 9 + 6 criteria\nEvidence · verdict", fillcolor="#f0eafa", color="#8e70c6"];
+    Core [label="Spec Review / LangGraph\n5 experts · paired / direct / legacy\nFacts · Z3 · arbiter · graph", fillcolor="#f0eafa", color="#8e70c6"];
     Ref [label="Reference RAG\nVector + BM25L + RRF"];
     Archive [label="Review archive\nFix proposals"];
+    Queue [label="Durable review dispatcher\nOwner-scoped jobs · leases"];
     Chat [label="LangGraph\nReview chat / general RAG"];
     Ingest [label="RAG ingestion\nPDF / TXT"];
     CLI [label="CLI\nStandalone invocation",fillcolor="#f9f8f5", color="#c7c2b7"];
-    Fast -> Core; Fast -> Archive; Fast -> Chat; Fast -> Ingest;
+    Fast -> Queue [label="HTTP 202 / poll"]; Queue -> Core [label="worker"]; Fast -> Core [label="sync compatibility"]; Fast -> Archive; Fast -> Chat; Fast -> Ingest;
     CLI -> Core; Core -> Ref [label="optional"];
     {rank=same; CLI; Fast;}
     {rank=same; Core; Archive; Chat; Ingest;}
@@ -29,7 +30,7 @@ digraph SpecReview {
     AppDB [shape=cylinder, label="PostgreSQL\nweb_app_demo",fillcolor="#eef6f0", color="#88b29a"];
     AgentDB [shape=cylinder, label="PostgreSQL\nagent",fillcolor="#eef6f0", color="#88b29a"];
     Chroma [shape=cylinder, label="ChromaDB\nVector indexes",fillcolor="#eef6f0", color="#88b29a"];
-    Files [shape=folder,label="Local storage\nRAG files",fillcolor="#eef6f0", color="#88b29a"];
+    Files [shape=folder,label="Local storage\nRAG files / checkpoints",fillcolor="#eef6f0", color="#88b29a"];
     {rank=same; AppDB; AgentDB; Chroma; Files;}
   }
   subgraph cluster_providers { label="EXTERNAL AI PROVIDERS"; color="#d4cadf"; style="rounded"; fontsize=11; fontcolor="#6a547e";
@@ -45,6 +46,6 @@ digraph SpecReview {
   Core -> LLM [label="structured analysis"];
   Core -> Drex [label="D-ID verification"];
   Ref -> Chroma [dir=both]; Ref -> Emb; Ref -> Drex [label="RF-ID / rerank"]; Ref -> LLM;
-  Archive -> AgentDB [label="source + report",dir=both]; Archive -> LLM;
+  Queue -> AgentDB [label="job state / lease",dir=both]; Queue -> Files [label="stage checkpoints"]; Queue -> Archive [label="terminal success"]; Archive -> AgentDB [label="source + report",dir=both]; Archive -> LLM;
   Chat -> AgentDB [label="retrieval / checkpoints",dir=both]; Chat -> Chroma [label="general RAG"]; Chat -> LLM; Ingest -> Files; Ingest -> AgentDB; Ingest -> Emb; Ingest -> Chroma;
 }

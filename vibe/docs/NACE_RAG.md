@@ -51,3 +51,7 @@ uv run pytest -q tests/test_nace_reranker.py tests/test_tools.py
 ```
 
 These tests check request/response mapping, ordering, fallback and owner-filtered citations without a live API key. To claim a quality or latency improvement, compare retrieval on labeled questions with and without Nace on the same source documents.
+
+## Independent support review (distinct from reranking)
+
+Create a key in the Nace Console dashboard (project API keys), copy it to the ignored `.env` and enable `AGENT_SPEC_REVIEW_USE_NACE=true` to audit final D-ID support and, when selected, reference RF-ID support. This switch is independent of `AGENT_USE_RERANKER`. The final official run on 2026-11-27 deliberately left independent decision review disabled; the primary verdict and audit did not depend on a second key. Limits, thresholds and unavailable behavior are documented in [Spec Review](SPEC_REVIEW.md#independent-decision-review-with-nace-drex).

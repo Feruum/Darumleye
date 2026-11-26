@@ -1,41 +1,45 @@
 digraph ReviewPipeline {
-  graph [rankdir=TB, bgcolor="#ffffff", margin=0.2, pad=0.25, nodesep=0.26, ranksep=0.34, splines=polyline, fontname="DejaVu Sans", label="SPEC REVIEW  /  AI-пайплайн", labelloc=t, fontsize=22, fontcolor="#29213d"];
+  graph [rankdir=TB, bgcolor="#ffffff", margin=0.2, pad=0.25, nodesep=0.26, ranksep=0.34, splines=polyline, fontname="DejaVu Sans", label="DARUMLEYE  /  AI-пайплайн Spec Review", labelloc=t, fontsize=22, fontcolor="#29213d"];
   node [shape=box, style="rounded,filled", color="#b7aacd", fillcolor="#f8f6fc", fontcolor="#29213d", penwidth=1.3, fontname="DejaVu Sans", fontsize=12, margin="0.20,0.10"];
   edge [color="#675a80", fontname="DejaVu Sans", fontsize=10, fontcolor="#514665", arrowsize=0.7];
-  Input [shape=oval, label="ТЗ + выбранные регламенты", fillcolor="#eae1fb"];
-  Parse [label="Валидация · PDF / TXT / Markdown\nСтраницы / строки · SHA-256"];
-  Extract [label="LLM: извлечение всех требований\nДиапазоны ≈ 5 000 символов"];
-  Register [label="Валидированный реестр R-ID", fillcolor="#eae1fb", color="#8e70c6"];
-  Fork [shape=rect, label="", height=0.10, width=5.8, fixedsize=true, style=filled, fillcolor="#675a80", color="#675a80"];
-  Input -> Parse -> Extract -> Register -> Fork;
-  subgraph cluster_core { label="CORE REVIEW  ·  Обязательная проверка"; style="rounded"; color="#9b83cb"; fontname="DejaVu Sans"; fontsize=12; fontcolor="#6a547e";
-    Code [label="Python\nДубли / повторные ID"];
-    Individual [label="LLM\n9 индивидуальных критериев\nПартии по 6"];
-    Set [label="LLM\n6 критериев набора\nПолный исходный текст"];
-    Validate [label="Pydantic + Evidence Validation\nID · структура · точные цитаты", fillcolor="#ece4fc", color="#8e70c6"];
-    Verdict [label="Дедупликация\nСтатистика + readiness verdict"];
-    Decide [label="Drex: оценка поддержки D-ID\nОпционально",fillcolor="#fff6e9", color="#d6b479"];
-    {rank=same; Code; Individual; Set;}
-    Code -> Validate; Individual -> Validate; Set -> Validate; Validate -> Verdict -> Decide;
+  Input [shape=oval, label="ТЗ + выбранные регламенты (опц.)", fillcolor="#eae1fb"];
+  Parse [label="Валидация · PDF / MD / TXT / Office / CSV / изображения\nOCR · исходные координаты · SHA-256"];
+  Register [label="Извлечение по всем диапазонам\nВалидированный реестр R-ID", fillcolor="#eae1fb", color="#8e70c6"];
+  Input -> Parse -> Register;
+  subgraph cluster_core { label="CORE REVIEW  ·  Полное покрытие документа"; style="rounded"; color="#9b83cb"; fontname="DejaVu Sans"; fontsize=12; labelloc=t;
+    Static [label="Детерминированные проверки\nID, повтор, пустое поле, диапазон"];
+    Facts [label="Fact / Clause Index\nZ3: ограниченные свидетели (опц.)",fillcolor="#eef6f0",color="#88b29a"];
+    Legacy [label="Legacy\nИндивидуальные + whole set"];
+    Experts [label="5 независимых экспертов\nLogic · Scenario · Gap · Contract · Risk"];
+    Pair [label="3 парных валидатора\nDefault: multi_agent"];
+    Direct [label="Прямая валидация\nmulti_agent_direct"];
+    Global [label="Общий валидатор\nПроверка критериев и источников"];
+    Final [label="Finalizer\nКонсолидация общих причин"];
+    Arbiter [label="Арбитр фактов и критичности\nПодтверждение / отклонение / uncertainty",fillcolor="#eae1fb",color="#8e70c6"];
+    Recheck [label="Адресная перепроверка\nТребование × критерий"];
+    Verify [label="Проверенные доказательства\n9 на R-ID + 6 набора + 15 readiness",fillcolor="#ece4fc",color="#8e70c6"];
+    Quarantine [label="Отклонённые наблюдения\nс контрдоказательствами",fillcolor="#fff6e9",color="#d6b479"];
+    Facts -> Experts; Experts -> Pair; Experts -> Direct; Pair -> Global; Direct -> Global;
+    Static -> Global; Static -> Legacy; Global -> Final -> Arbiter -> Recheck -> Verify; Legacy -> Verify;
+    Arbiter -> Quarantine [label="не считать defect"];
   }
-  subgraph cluster_refs { label="REFERENCE RAG  ·  При наличии источников"; style="rounded"; color="#9b83cb"; fontname="DejaVu Sans"; fontsize=12; fontcolor="#6a547e";
-    Index [label="ChromaDB · индекс регламентов", shape=cylinder, fillcolor="#eef6f0", color="#88b29a"];
-    Hybrid [label="Vector Search + BM25L + RRF\nDrex rerank (опционально)"];
-    Context [label="Контекст ≤ 12 000 символов\nПокрытие источников"];
-    Compare [label="LLM: нормативное сравнение\nДвойные цитаты"];
-    RefVerify [label="Проверка обеих цитат\nDrex: поддержка RF-ID (опц.)",fillcolor="#fff6e9", color="#d6b479"];
-    Index -> Hybrid -> Context -> Compare -> RefVerify;
+  Register -> Static; Register -> Facts; Register -> Legacy [label="legacy"];
+  subgraph cluster_refs { label="REFERENCE RAG (ОПЦ.)"; style="rounded"; color="#9b83cb"; fontname="DejaVu Sans"; fontsize=12; labelloc=t;
+    Index [shape=cylinder,label="Chroma · выбранные версии\nИзоляция владельца + хеш"];
+    Hybrid [label="Vector + BM25 + RRF\nDrex reranking (опц.)"];
+    RefVerify [label="Нормативное сравнение RF-ID\nДвойная проверка цитат",fillcolor="#fff6e9",color="#d6b479"];
+    Index -> Hybrid -> RefVerify;
   }
-  Fork -> Code; Fork -> Individual; Fork -> Set; Fork -> Index [label="если выбраны"];
-  Join [shape=rect, label="", height=0.10, width=5.8, fixedsize=true, style=filled, fillcolor="#675a80", color="#675a80"];
-  Decide -> Join; RefVerify -> Join;
-  Report [label="ReviewReport\nВалидированный JSON + Markdown",fillcolor="#eae1fb",color="#8e70c6"];
-  Archive [shape=cylinder, label="PostgreSQL archive\nИсточник + отчёт (web)",fillcolor="#eef6f0",color="#88b29a"];
-  Export [label="Экспорт Markdown / JSON",fillcolor="#f9f8f5",color="#c7c2b7"];
-  UI [label="Интерактивный отчёт\nЧат и исправления",fillcolor="#eae1fb",color="#8e70c6"];
-  Join -> Report; Report -> Archive -> UI; Report -> Export;
-  {rank=same; Archive; Export;}
-  Note [shape=note, style=filled, fillcolor="#fffaf0", color="#d6b479", fontsize=10,label="Обязательная стадия не прошла валидацию: ошибка.\nНеобязательная стадия недоступна: основной отчёт сохраняется.\nDrex не меняет основной вердикт."];
-  Note -> Report [style=dashed, arrowhead=none, constraint=false];
-  {rank=same; Report; Note;}
+  Register -> Index [label="если выбраны"];
+  Drex [label="Независимый Nace Drex (опц.)\nD-ID и отдельно RF-ID",fillcolor="#fff6e9",color="#d6b479"];
+  Verify -> Drex; RefVerify -> Drex;
+  EvGraph [label="Evidence Graph (мультиагентные маршруты)\nИсходные наблюдения, цитаты, решения",fillcolor="#eae1fb",color="#8e70c6"];
+  Verify -> EvGraph; Quarantine -> EvGraph;
+  Verdict [label="Программный вердикт + статистика",fillcolor="#eae1fb",color="#8e70c6"];
+  Report [label="Валидированный JSON / Markdown",fillcolor="#eae1fb",color="#8e70c6"];
+  Verify -> Verdict; Verdict -> Report; EvGraph -> Report; Drex -> Report [style=dashed,label="отдельная оценка"]; RefVerify -> Report [style=dashed,label="RF-ID отдельно"];
+  Archive [shape=cylinder,label="Web: PostgreSQL archive\nИсточник + проверенный отчёт",fillcolor="#eef6f0",color="#88b29a"];
+  Export [label="CLI / экспорт Markdown и JSON"];
+  UI [label="Отчёт · граф · чат · правки"];
+  Report -> Archive -> UI; Report -> Export;
 }

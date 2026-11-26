@@ -1,6 +1,6 @@
 # Project commands
 
-The primary workflow runs on localhost. Run Bun commands from the active application directory, `vibe/`.
+The current delivery supports the standalone CLI and a localhost workspace. Run Bun commands from `vibe/`; run the following standalone evaluation commands from the repository root. See [documentation index](README.md).
 
 ## Start the stack
 
@@ -31,6 +31,22 @@ Ctrl+C stops the application processes. Docker services remain running. To stop 
 | `bun run lint` | Run workspace lint tasks through Turbo; currently ESLint for webapp |
 
 Local addresses: site `http://localhost:4321`, app `http://localhost:5173`, API `http://localhost:3000`, internal FastAPI `http://localhost:8001`.
+
+## Standalone requirements review (from repository root)
+
+```bash
+# Configure the OpenAI-compatible provider in the ignored root .env first.
+uv sync --project vibe/services/agent --frozen
+uv run --project vibe/services/agent --frozen python -m agent.spec_review_cli \
+  --input .artifacts/requirements.md --output .artifacts/official-report.json \
+  --env-file .env --review-mode multi_agent --timeout-seconds 900 \
+  --checkpoint-dir .artifacts/official-checkpoints
+uv run --project vibe/services/agent --frozen python vibe/services/agent/scripts/evaluate_spec_report.py \
+  --input .artifacts/requirements.md --report .artifacts/official-report.json \
+  --output .artifacts/official-eval.json --official
+```
+
+Use an actual downloaded [organizer input](https://github.com/BCC-HUB/ai-requirements-validator-task/blob/main/docs/requirements.md); the committed examples are synthetic. For a no-provider benchmark preview, use `compare_review_modes.py --dry-run --output-dir .artifacts/review-plan`. See [review modes and comparisons](QUALITY_EVALUATION.md#comparing-the-three-review-modes). The document-only CLI needs neither the web stack nor a database. Live LLM analyses consume provider credits.
 
 ## Turborepo
 
@@ -74,7 +90,7 @@ bun run --cwd backend --env-file=../.env db:seed
 
 These examples explicitly load the root `.env` after selecting `backend/`. Omit `--env-file=../.env` when supplying the settings through your shell or using a separate `backend/.env`. Keep `run` before the workspace and environment flags so Bun executes the requested script. Root `dev:<workspace>` and `dev:seed` shortcuts also load the shared `.env`; they do not start infrastructure. Direct workspace commands such as `bun run --cwd backend dev` require their own workspace environment or exported settings.
 
-The agent uses a separate `agent` database. FastAPI creates its document and LangGraph checkpoint tables at startup. See [LOCAL_DATABASE.md](LOCAL_DATABASE.md) to reset these stores.
+The agent uses a separate `agent` database. FastAPI creates document, LangGraph checkpoint, completed-review archive and durable review job tables at startup. See [LOCAL_DATABASE.md](LOCAL_DATABASE.md) to reset these stores.
 
 ## Tests
 
