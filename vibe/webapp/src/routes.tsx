@@ -29,6 +29,12 @@ const loginRoute = createRoute({
   component: lazyRouteComponent(() => import('./pages'), 'LoginPage'),
 })
 
+const dateConflictDemoRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/demo/date-conflict',
+  component: lazyRouteComponent(() => import('./features/agent/DateConflictDemo'), 'DateConflictDemo'),
+})
+
 const signupRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/signup',
@@ -120,6 +126,7 @@ const adminSettingsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  dateConflictDemoRoute,
   loginRoute,
   signupRoute,
   forgotPasswordRoute,

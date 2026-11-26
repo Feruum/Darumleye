@@ -168,7 +168,7 @@ export function SpecReviewCard({ active = true, onStartFix }: { active?: boolean
       {view === 'setup' && <ReviewSetup
         file={file} references={references} pendingRecovery={pendingRecovery} reviewMode={snapshot.reviewMode} onReviewModeChange={run.setReviewMode} fileError={fileError} referenceError={referenceError}
         requestError={snapshot.status === 'failed' ? reviewErrorMessage(snapshot.error) : undefined}
-        cancelled={snapshot.status === 'cancelled'} loadingExample={sampleLoading}
+        cancelled={snapshot.status === 'cancelled'} loadingExample={sampleLoading} showDateConflictDemo
         onFileSelect={selectFile} onReferencesChange={(next) => { run.setReferences(next); setReferenceError(undefined) }}
         onReferenceError={setReferenceError} onViewExample={() => void viewExample()} onSubmit={submit}
       />}

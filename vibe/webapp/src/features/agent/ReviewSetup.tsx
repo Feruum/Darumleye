@@ -5,6 +5,7 @@ import {
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { GlassMascot } from '@web-app-demo/mascot'
+import { Link } from '@tanstack/react-router'
 import { useId, useRef, useState, type FormEvent } from 'react'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/interface/alert'
@@ -53,6 +54,7 @@ type SetupProps = {
   requestError?: string
   cancelled: boolean
   loadingExample: boolean
+  showDateConflictDemo?: boolean
   onFileSelect: (file?: File) => void
   onReferencesChange: (sources: ReferenceDraft[]) => void
   onReferenceError: (error?: string) => void
@@ -62,7 +64,7 @@ type SetupProps = {
 
 export function ReviewSetup({
   file, pendingRecovery = false, reviewMode = AGENT_DEFAULT_REVIEW_MODE, onReviewModeChange, references, fileError, referenceError, requestError, cancelled, loadingExample,
-  onFileSelect, onReferencesChange, onReferenceError, onViewExample, onSubmit,
+  onFileSelect, onReferencesChange, onReferenceError, onViewExample, onSubmit, showDateConflictDemo = false,
 }: SetupProps) {
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -142,6 +144,10 @@ export function ReviewSetup({
         <Typography as="p" variant="bodySm">Что исправить: задайте измеримое время выполнения операции.</Typography>
       </div>
       <Button variant="outline" className="sr-guide-cta sr-press" type="button" onClick={onViewExample} disabled={loadingExample}>Посмотреть пример отчёта <HugeiconsIcon icon={ArrowRight01Icon} size={17} aria-hidden /></Button>
+      {showDateConflictDemo && <Link to="/demo/date-conflict" target="_blank" rel="noopener" className="inline-flex w-fit items-center gap-2 px-2 py-1.5 hover:underline">
+        <Typography as="span" variant="bodySmMedium">Демо исправления конфликта</Typography>
+        <HugeiconsIcon icon={ArrowRight01Icon} size={17} aria-hidden />
+      </Link>}
     </aside>
   </div>
 }
