@@ -2,7 +2,7 @@
 
 Source: https://github.com/OAI/OpenAPI-Specification/blob/3.1.1/versions/3.1.1.md
 Official rendered specification: https://spec.openapis.org/oas/v3.1.1.html
-License: Apache License, Version 2.0 (see OPENAPI-LICENSE.txt).
+License: Apache License, Version 2.0 (see ../THIRD_PARTY.md).
 Provenance: selected sections (in-document anchor links redirected to the official full specification) from the 3.1.1 release, retrieved 2026-11-25. This is a public technical reference, not BCC policy; use only if applicable to the project's API contract. The excerpt is not the full standard.
 
 ### Operation Object

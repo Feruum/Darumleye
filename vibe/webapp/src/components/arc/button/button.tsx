@@ -1,4 +1,4 @@
-// Arc Free, Copyright (c) 2026 Elia Kuratli. MIT; see ../LICENSE and ../README.md.
+// Arc Free, Copyright (c) 2026 Elia Kuratli. MIT; see ../../../../../docs/THIRD_PARTY.md and ../README.md.
 "use client";
 
 import { forwardRef, isValidElement, useCallback, useEffect, useLayoutEffect, useRef } from "react";

@@ -1,6 +1,6 @@
 # Shared shadcn styles
 
-`tailwind.css` is an unchanged copy of `dist/tailwind.css` from [shadcn 4.16.1](https://www.npmjs.com/package/shadcn/v/4.16.1). The adjacent `LICENSE.md` preserves its MIT license and copyright notice.
+`tailwind.css` is an unchanged copy of `dist/tailwind.css` from [shadcn 4.16.1](https://www.npmjs.com/package/shadcn/v/4.16.1). The repository’s [third-party terms](../../../docs/THIRD_PARTY.md) preserve its MIT license and copyright notice.
 
 Both frontends import this file. Turbo includes it in the global build inputs, so a style update invalidates cached frontend builds.
 

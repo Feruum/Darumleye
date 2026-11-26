@@ -1,4 +1,4 @@
-/* Arc Free, Copyright (c) 2026 Elia Kuratli. MIT; see LICENSE and README.md. */
+/* Arc Free, Copyright (c) 2026 Elia Kuratli. MIT; see ../../../../docs/THIRD_PARTY.md and README.md. */
 .root { display: flex; width: 100%; flex-direction: column; align-items: center; padding: clamp(var(--space-8), 8vw, var(--space-12)) var(--space-5); text-align: center; }
 .icon { position: relative; display: grid; width: var(--space-12); height: var(--space-12); place-items: center; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface-muted); color: var(--text-secondary); animation: empty-state-icon var(--duration-considered) var(--ease-enter) both; }
 .glyph { display: grid; place-items: center; }

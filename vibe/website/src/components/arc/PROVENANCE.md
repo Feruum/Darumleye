@@ -3,7 +3,7 @@
 The button, card, badge, accordion, dropdown menu, and motion presets were copied from the
 public [Arc Free registry](https://uiarc.dev/r/{name}.json) on 2026-10-16.
 Upstream source: [kuratlielia/arc-library](https://github.com/kuratlielia/arc-library).
-Copyright (c) 2026 Elia Kuratli. The MIT license is preserved in `LICENSE`.
+Copyright (c) 2026 Elia Kuratli. The MIT license is preserved in [third-party terms](../../../../docs/THIRD_PARTY.md).
 No Arc Pro source is included.
 
 Local adaptations:

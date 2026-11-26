@@ -1,6 +1,6 @@
 # Arc Free source
 
-The active workspace uses official MIT-licensed Arc Free source retrieved on 2026-10-16. Copyright belongs to Elia Kuratli; retain [LICENSE](LICENSE) and the notices when copying these files. No Arc Pro source is included.
+The active workspace uses official MIT-licensed Arc Free source retrieved on 2026-10-16. Copyright belongs to Elia Kuratli; retain [the MIT terms](../../../../docs/THIRD_PARTY.md) and the notices when copying these files. No Arc Pro source is included.
 
 Registry source: [Button](https://uiarc.dev/r/button.json), [Input](https://uiarc.dev/r/input.json), [Textarea](https://uiarc.dev/r/textarea.json), [Card](https://uiarc.dev/r/card.json), [Alert](https://uiarc.dev/r/alert.json), [Skeleton](https://uiarc.dev/r/skeleton.json), [Avatar](https://uiarc.dev/r/avatar.json), [Select](https://uiarc.dev/r/select.json), [SearchField](https://uiarc.dev/r/search-field.json), [PasswordField](https://uiarc.dev/r/password-field.json), [SortableDataTable](https://uiarc.dev/r/sortable-data-table.json), [UserMenu](https://uiarc.dev/r/user-menu.json), [EmptyState](https://uiarc.dev/r/empty-state.json), [Badge](https://uiarc.dev/r/badge.json), [motion tokens](https://uiarc.dev/r/arc-motion-tokens.json), and [foundation tokens](https://uiarc.dev/r/arc-foundation.json). [Upstream repository](https://github.com/kuratlielia/arc-library).
 
