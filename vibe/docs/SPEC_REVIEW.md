@@ -52,7 +52,7 @@ For a document within the full-context review limits, an explicit acceptance-sce
 
 ## Reproduce a run
 
-Install Python 3.12+ and uv. Copy the repository-root `.env.example` to `.env`. Set the key issued for the configured endpoint. The current example uses `gpt-6-luna` on WikiVibe with `multi_agent` as the default for new reviews. Multi-agent extraction and experts use low reasoning effort, while paired validators, Finalizer and targeted re-review use medium. To use another compatible model, such as `glm-5.3`, select the matching API endpoint, model name and key.
+Install Python 3.12+ and uv. Copy the repository-root `.env.example` to `.env`. Set the key issued for the configured endpoint. The example uses `openai/gpt-6-luna` on OpenRouter and defaults to `multi_agent` for new reviews. Set `AGENT_SPEC_REVIEW_REASONING_EFFORT=low` to apply low effort throughout legacy, paired and direct reviews, including reference comparisons, paired validators, finalization and re-review.
 
 From the repository root:
 

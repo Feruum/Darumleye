@@ -227,6 +227,60 @@ def test_missing_source_reports_actionable_error_without_output(tmp_path, capsys
     assert not list(tmp_path.iterdir())
 
 
+def test_cli_effort_change_starts_a_separate_checkpointed_run(configured_cli, monkeypatch):
+    source, env = configured_cli
+    calls = []
+
+    class Capture(ControlledModel):
+        model_name = "openai/gpt-6-luna"
+
+        async def ainvoke(self, messages, **kwargs):
+            stage = json.loads(messages[-1].content)["stage"]
+            calls.append((stage, kwargs["reasoning_effort"]))
+            assert "extra_body" not in kwargs
+            return await super().ainvoke(messages, **kwargs)
+
+    monkeypatch.setattr(cli, "ChatOpenAI", lambda **kwargs: Capture())
+    monkeypatch.setenv("AGENT_LLM_MODEL", Capture.model_name)
+    command = [str(source), "--review-mode", "multi_agent", "--env-file", str(env),
+               "--checkpoint-dir", str(source.parent / "checkpoints"), "--format", "json", "--quiet"]
+    run_ids = []
+    for effort in ("auto", "low", "low"):
+        monkeypatch.setenv("AGENT_SPEC_REVIEW_REASONING_EFFORT", effort)
+        calls.clear()
+        out = source.parent / "review.json"
+        assert cli.main([*command, "--output", str(out)]) == 0
+        run_ids.append(json.loads(out.read_text())["passport"]["run_id"])
+        if len(run_ids) == 1:
+            assert ("multi_finalizer", "medium") in calls
+        elif len(run_ids) == 2:
+            assert ("multi_finalizer", "low") in calls
+            assert all(value == "low" for _, value in calls)
+        else:
+            assert calls == []
+    assert run_ids[0] != run_ids[1] == run_ids[2]
+
+
+def test_cli_openrouter_luna_wire_format(configured_cli, monkeypatch):
+    from test_spec_review import TEXT, payloads, provider
+
+    source, env = configured_cli
+    source.write_text(TEXT, encoding="utf-8")
+    monkeypatch.setenv("AGENT_LLM_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("AGENT_LLM_MODEL", "openai/gpt-6-luna")
+    monkeypatch.setenv("AGENT_SPEC_REVIEW_REASONING_EFFORT", "low")
+    requests = []
+    monkeypatch.setattr(cli, "ChatOpenAI", lambda **kw: provider(payloads(), requests, **kw))
+    assert cli.main([str(source), "--env-file", str(env), "--review-mode", "legacy", "--quiet"]) == 0
+    assert requests
+    for body in requests:
+        assert body["model"] == "openai/gpt-6-luna"
+        assert body["reasoning"] == {"effort": "low"}
+        assert body["provider"] == {"require_parameters": True}
+        assert body["max_completion_tokens"] == 8192
+        assert "temperature" not in body
+
+
 def test_default_cli_run_writes_multi_agent_graph(configured_cli, monkeypatch, capsys):
     from test_spec_multi_agent import ExpertChat, SOURCE
 

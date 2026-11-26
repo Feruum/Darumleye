@@ -161,7 +161,7 @@ async def test_recovered_provider_call_counts_failed_and_successful_attempts(mon
         calls += 1
         if calls == 1:
             raise APITimeoutError(request=httpx.Request("POST", "https://provider.invalid"))
-        return AIMessage(content=json.dumps({"requirements": []}), usage_metadata={
+        return AIMessage(content=json.dumps({"requirements": []}), response_metadata={"model_name": "fixture-v1"}, usage_metadata={
             "input_tokens": 2, "output_tokens": 3, "total_tokens": 5,
         })
 
@@ -175,3 +175,7 @@ async def test_recovered_provider_call_counts_failed_and_successful_attempts(mon
     assert calls == usage["model_calls"] == 2
     assert usage["reported_input_tokens"] == 2 and usage["reported_output_tokens"] == 3
     assert not usage["usage_complete"]
+    [extraction] = usage["by_stage"]
+    assert extraction["stage"] == "extraction" and extraction["model"] == "fixture"
+    assert extraction["model_calls"] == 2 and extraction["response_models"] == {"fixture-v1": 1}
+    assert extraction["input_tokens"] is None and extraction["reported_input_tokens"] == 2

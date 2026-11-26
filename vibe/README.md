@@ -41,7 +41,7 @@ Edit `.env`:
 | --- | --- |
 | `JWT_SECRET` | Random session secret, at least 32 characters |
 | `AGENT_API_KEY` | Private shared key for the Bun API and Python agent |
-| `AGENT_LLM_BASE_URL`, `AGENT_LLM_API_KEY`, `AGENT_LLM_MODEL` | Specification review and chat; the example uses GPT-6 Luna via WikiVibe |
+| `AGENT_LLM_BASE_URL`, `AGENT_LLM_API_KEY`, `AGENT_LLM_MODEL` | Specification review and chat; the example uses GPT-6 Luna via OpenRouter |
 | `AGENT_EMBEDDING_MODEL` | Required for general RAG indexing; not required for document-only review |
 
 Keep `.env` private. Configure embedding credentials separately if the provider requires them. Model requests include extracted document text.

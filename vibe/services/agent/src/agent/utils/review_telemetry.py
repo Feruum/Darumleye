@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections import Counter
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -192,10 +194,14 @@ class UsageTotals:
     output_tokens: int = 0
     measured_input_calls: int = 0
     measured_output_calls: int = 0
+    cost_usd: Decimal = Decimal(0)
+    measured_cost_calls: int = 0
+    response_models: Counter[str] = field(default_factory=Counter)
 
-    def summary(self) -> dict[str, int | bool | None]:
+    def summary(self) -> dict[str, int | float | bool | None]:
         input_complete = self.calls == self.measured_input_calls
         output_complete = self.calls == self.measured_output_calls
+        reported_cost = float(self.cost_usd) if self.measured_cost_calls else None
         return {
             "model_calls": self.calls,
             "cache_hits": self.hits,
@@ -204,23 +210,38 @@ class UsageTotals:
             "reported_input_tokens": self.input_tokens,
             "reported_output_tokens": self.output_tokens,
             "usage_complete": input_complete and output_complete,
-            "cost_usd": None,  # The configured provider can use private pricing.
+            "cost_usd": reported_cost if self.calls == self.measured_cost_calls else None,
+            "reported_cost_usd": reported_cost,
         }
 
 
 @dataclass
 class ReviewSpan:
     span: trace.Span
-    totals: UsageTotals | None = field(default=None, kw_only=True)
+    stage: str = field(default="review-stage", kw_only=True)
+    model: str | None = field(default=None, kw_only=True)
+    _effort: str | None = field(default=None, init=False)
+    _usage: UsageTotals | None = field(default=None, init=False)
     _called: bool = field(default=False, init=False)
     _measured: set[str] = field(default_factory=set, init=False)
     _failed: bool = field(default=False, init=False)
 
+    def _stage_usage(self) -> UsageTotals | None:
+        run = _active_run.get()
+        if run is None:
+            return None
+        key = (self.stage, self.model, self._effort)
+        if key not in run.by_stage:
+            run.by_stage[key] = UsageTotals()
+        return run.by_stage[key]
+
     def called(self) -> None:
         """Count the application-level provider invocation (SDK hidden retries are unknown)."""
-        if not self._called and self.totals is not None:
+        if not self._called:
             self._called = True
-            self.totals.calls += 1
+            self._usage = self._stage_usage()
+            if self._usage is not None:
+                self._usage.calls += 1
 
     def http_status(self, status: int) -> None:
         if type(status) is int and 100 <= status <= 599:
@@ -229,6 +250,7 @@ class ReviewSpan:
     def reasoning_effort(self, value: str | None) -> None:
         """Configured effort only, never the model's reasoning or response."""
         if isinstance(value, str) and value in {"low", "medium"}:
+            self._effort = value
             self.span.set_attribute(f"{_META}reasoning_effort", value)
 
     def count(self, name: str, value: int) -> None:
@@ -245,21 +267,34 @@ class ReviewSpan:
             self.span.set_attribute(f"{_META}observation_ids", identifiers)
 
     def cached(self) -> None:
-        if self.totals is not None:
-            self.totals.hits += 1
+        usage = self._stage_usage()
+        if usage is not None:
+            usage.hits += 1
         self.span.set_attribute(f"{_META}cache_hit", True)
         # Cached observations aren't a billed generation and have no token usage.
         self.span.set_attribute("langfuse.observation.type", "span")
 
-    def usage(self, response: Any) -> None:
+    def usage(self, response: Any, *, openrouter: bool = False) -> None:
         """Read provider usage only, never response text or arbitrary metadata."""
+        metadata = getattr(response, "response_metadata", None)
+        if isinstance(metadata, Mapping) and self._usage is not None:
+            model = metadata.get("model_name")
+            if isinstance(model, str) and _MODEL_RE.fullmatch(model) and "model" not in self._measured:
+                self._usage.response_models[model] += 1
+                self._measured.add("model")
+            token_usage = metadata.get("token_usage")
+            if openrouter and isinstance(token_usage, Mapping) and "cost" not in self._measured:
+                cost = token_usage.get("cost")
+                if type(cost) in (int, float) and 0 <= cost <= 2**53:
+                    self._usage.cost_usd += Decimal(str(cost))
+                    self._usage.measured_cost_calls += 1
+                    self._measured.add("cost")
         usage = (
             response
             if isinstance(response, Mapping)
             else getattr(response, "usage_metadata", None)
         )
         if not isinstance(usage, Mapping) or not usage:
-            metadata = getattr(response, "response_metadata", None)
             usage = (
                 metadata.get("token_usage") if isinstance(metadata, Mapping) else None
             )
@@ -273,17 +308,16 @@ class ReviewSpan:
             if type(value) is int and 0 <= value <= 2**53:
                 self.span.set_attribute(f"gen_ai.usage.{direction}_tokens", value)
                 if (
-                    self.totals is not None
-                    and self._called
+                    self._usage is not None
                     and direction not in self._measured
                 ):
                     self._measured.add(direction)
                     if direction == "input":
-                        self.totals.input_tokens += value
-                        self.totals.measured_input_calls += 1
+                        self._usage.input_tokens += value
+                        self._usage.measured_input_calls += 1
                     else:
-                        self.totals.output_tokens += value
-                        self.totals.measured_output_calls += 1
+                        self._usage.output_tokens += value
+                        self._usage.measured_output_calls += 1
 
     def outcome(self, status: str) -> None:
         if status in _STATUSES:
@@ -369,9 +403,10 @@ class ReviewSpan:
                 f"drex_{status}",
                 sum(getattr(item, "status", None) == status for item in decisions),
             )
-        if self.totals is not None:
-            self.count("model_calls", self.totals.calls)
-            self.count("cache_hits", self.totals.hits)
+        run = _active_run.get()
+        if run is not None:
+            self.count("model_calls", sum(row.calls for row in run.by_stage.values()))
+            self.count("cache_hits", sum(row.hits for row in run.by_stage.values()))
         verdict = getattr(getattr(report, "verdict", None), "status", None)
         if verdict in _STATUSES:
             self.span.set_attribute(f"{_META}verdict", verdict)
@@ -387,13 +422,25 @@ class ReviewRun(ReviewSpan):
     run_id: str
     review_mode: str
     source: str
+    by_stage: dict[tuple[str, str | None, str | None], UsageTotals] = field(default_factory=dict)
 
-    def usage_summary(self) -> dict[str, int | bool | None]:
-        return (
-            self.totals.summary()
-            if self.totals is not None
-            else UsageTotals().summary()
-        )
+    def usage_summary(self) -> dict[str, Any]:
+        total = UsageTotals()
+        rows = []
+        for (stage, model, effort), usage in self.by_stage.items():
+            total.calls += usage.calls
+            total.hits += usage.hits
+            total.input_tokens += usage.input_tokens
+            total.output_tokens += usage.output_tokens
+            total.measured_input_calls += usage.measured_input_calls
+            total.measured_output_calls += usage.measured_output_calls
+            total.cost_usd += usage.cost_usd
+            total.measured_cost_calls += usage.measured_cost_calls
+            rows.append({
+                "stage": stage, "model": model, "reasoning_effort": effort,
+                **usage.summary(), "response_models": dict(usage.response_models),
+            })
+        return {**total.summary(), "by_stage": rows}
 
 
 _active_run: ContextVar[ReviewRun | None] = ContextVar("spec_review_run", default=None)
@@ -440,7 +487,7 @@ def review_run(
         record_exception=False,
         set_status_on_exception=False,
     ) as span:
-        run = ReviewRun(span, identifier, mode, source, totals=UsageTotals())
+        run = ReviewRun(span, identifier, mode, source)
         token = _active_run.set(run)
         try:
             yield run
@@ -500,7 +547,7 @@ def review_stage(
         record_exception=False,
         set_status_on_exception=False,
     ) as span:
-        wrapper = ReviewSpan(span, totals=run.totals)
+        wrapper = ReviewSpan(span, stage=_stage_name(stage), model=attributes.get("gen_ai.request.model"))
         try:
             yield wrapper
         except BaseException as error:

@@ -27,7 +27,7 @@ class Agent:
             model=self.model_name,
             api_key=settings.llm_api_key,
             base_url=settings.llm_base_url,
-            temperature=settings.llm_temperature,
+            temperature=settings.chat_temperature(self.model_name, settings.llm_temperature),
             max_tokens=settings.llm_max_tokens,
             timeout=settings.llm_timeout_seconds,
             max_retries=settings.llm_max_retries,

@@ -19,7 +19,7 @@ Spec Review checks FinTech requirements before development. It extracts requirem
 
 The document-only CLI requires Python 3.12+, [uv](https://docs.astral.sh/uv/), and an OpenAI-compatible model that supports JSON output. Docker, Bun, PostgreSQL, Chroma and embeddings are not needed for this run.
 
-1. Copy the root `.env.example` to `.env` and set `AGENT_LLM_API_KEY`. The example selects `gpt-6-luna` through WikiVibe. Keep credentials private.
+1. Copy the root `.env.example` to `.env` and set `AGENT_LLM_API_KEY`. The example selects `openai/gpt-6-luna` through OpenRouter with low reasoning effort for every review stage. Keep credentials private.
 2. Download the [organizers' specification](https://github.com/BCC-HUB/ai-requirements-validator-task/blob/main/docs/requirements.md) to `.artifacts/requirements.md`.
 3. From the repository root, run:
 

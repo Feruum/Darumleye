@@ -72,7 +72,7 @@ def checkpoint_run_id(args: argparse.Namespace, configuration: Settings) -> str 
         return None
     with args.input.open("rb") as document:
         digest = sha256(document.read(MAX_REVIEW_FILE_BYTES + 1)).hexdigest()
-    key = sha256(json.dumps([digest, args.review_mode, configuration.llm_model, configuration.llm_base_url, configuration.spec_review_use_nace, configuration.nace_model], separators=(",", ":")).encode()).hexdigest()
+    key = sha256(json.dumps([digest, args.review_mode, configuration.llm_model, configuration.spec_review_checkpoint_provider, configuration.spec_review_use_nace, configuration.nace_model], separators=(",", ":")).encode()).hexdigest()
     directory = args.checkpoint_dir.resolve()
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     path = directory / f".session-{key}"
@@ -158,7 +158,7 @@ async def _run_review(args: argparse.Namespace, progress: ReviewProgress, config
         model=configuration.llm_model,
         base_url=configuration.llm_base_url,
         api_key=configuration.llm_api_key,
-        temperature=0,
+        temperature=configuration.chat_temperature(configuration.llm_model, 0),
         timeout=configuration.llm_timeout_seconds,
         max_retries=configuration.llm_max_retries,
     )
@@ -177,7 +177,7 @@ async def _run_review(args: argparse.Namespace, progress: ReviewProgress, config
     llm = ProgressChat(llm, progress)
     checkpoint = (
         StageCheckpoint(
-            args.checkpoint_dir, provider_identity=configuration.llm_base_url
+            args.checkpoint_dir, provider_identity=configuration.spec_review_checkpoint_provider
         )
         if args.checkpoint_dir
         else None

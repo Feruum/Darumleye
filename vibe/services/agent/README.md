@@ -19,7 +19,8 @@ The following env values come from the root `.env.example` and `docker-compose.y
 | `AGENT_API_KEY` | Internal shared key between Bun and FastAPI |
 | `AGENT_LLM_BASE_URL` | OpenAI-compatible chat API origin |
 | `AGENT_LLM_API_KEY` | Chat API credential |
-| `AGENT_LLM_MODEL` | Chat model name; examples use `gpt-6-luna` through WikiVibe |
+| `AGENT_LLM_MODEL` | Chat model name. The example uses `openai/gpt-6-luna` through OpenRouter |
+| `AGENT_SPEC_REVIEW_REASONING_EFFORT` | Applies a single reasoning effort to all review stages. The example selects `low` |
 | `AGENT_LLM_TIMEOUT_SECONDS` / `AGENT_LLM_MAX_RETRIES` | Per-call timeout and retry policy; defaults 45 seconds / 2 retries |
 | `AGENT_SPEC_REVIEW_TIMEOUT_SECONDS` | Total time limit for a specification review; default `230`, allowed range `30..240` |
 | `AGENT_SPEC_REVIEW_CONCURRENCY` | Primary parallel calls, default 3, range 1..3; normative comparison is independent |

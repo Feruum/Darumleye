@@ -55,7 +55,7 @@ def review_jobs(app: FastAPI, sessions=async_session) -> ReviewJobs:
             sessions,
             lambda job: execute_durable_review(app, job),
             Path(settings.upload_dir) / "spec-review-checkpoints",
-            provider_identity=settings.llm_base_url,
+            provider_identity=settings.spec_review_checkpoint_provider,
         )
     return app.state.review_jobs
 

@@ -4,6 +4,8 @@ import asyncio
 import json
 import re
 import subprocess
+from contextlib import contextmanager
+from contextvars import ContextVar
 from difflib import SequenceMatcher
 from collections.abc import Awaitable, Callable, Iterable
 from functools import lru_cache
@@ -268,16 +270,40 @@ class ReviewReport(StructuredReview):
     evidence_graph: EvidenceGraph | None = None
 
 
+# A configured review shares its effort policy across concurrent LangGraph tasks.
+# Direct library callers retain the existing per-stage defaults.
+_review_reasoning: ContextVar[tuple[str | None, bool]] = ContextVar("spec_review_reasoning", default=(None, False))
+
+
+@contextmanager
+def configured_review_reasoning(configuration: Settings):
+    effort = configuration.spec_review_reasoning_effort
+    token = _review_reasoning.set((None if effort == "auto" else effort, configuration.uses_openrouter))
+    try:
+        yield
+    finally:
+        _review_reasoning.reset(token)
+
+
 async def invoke_stage[T: BaseModel](
     llm: ChatOpenAI, stage: str, instructions: str, data: dict, output: type[T]
 ) -> T:
     model = getattr(llm, "model_name", None)
-    effort = None
-    if model and model.rsplit("/", 1)[-1].lower() in {"gpt-6-luna", "glm-5.3"}:
+    effort, openrouter = _review_reasoning.get()
+    if effort is None and model and model.rsplit("/", 1)[-1].lower() in {"gpt-6-luna", "glm-5.3"}:
         if stage.startswith("multi_pair_") or stage in {"multi_finalizer", "multi_recheck"}:
             effort = "medium"
         elif stage.startswith("multi_") or stage in {"extraction", "individual", "set", "acceptance_alignment", "reference"}:
             effort = "low"
+    reasoning_options = {}
+    if effort:
+        if openrouter:
+            reasoning_options["extra_body"] = {
+                "reasoning": {"effort": effort},
+                "provider": {"require_parameters": True},
+            }
+        else:
+            reasoning_options["reasoning_effort"] = effort
     contract = glm_prompt_contract(
         model,stage,data,output,
         authored_criteria={*INDIVIDUAL_CRITERIA,*SET_CRITERIA},
@@ -311,9 +337,9 @@ async def invoke_stage[T: BaseModel](
                 ],
                 response_format={"type": "json_object"},
                 max_tokens=8192,
-                **({"reasoning_effort": effort} if effort else {}),
+                **reasoning_options,
             )
-            span.usage(message)
+            span.usage(message, openrouter=openrouter)
             finish_reason = message.response_metadata.get("finish_reason")
             if finish_reason == "content_filter":
                 raise RuntimeError("The model response was filtered")
@@ -1678,16 +1704,17 @@ async def review_specification_configured(
                 model=configuration.nace_model,
                 timeout=configuration.nace_timeout_seconds,
             )
-    async with asyncio.timeout_at(deadline):
-        return await review_specification(
-            specification,
-            llm,
-            verifier=verifier,
-            deadline=deadline,
-            references=references,
-            reference_retriever_factory=reference_retriever_factory,
-            reference_verifier=reference_verifier,
-            concurrency=configuration.spec_review_concurrency,
-            run_id=run_id,
-            review_mode=review_mode,
-        )
+    with configured_review_reasoning(configuration):
+        async with asyncio.timeout_at(deadline):
+            return await review_specification(
+                specification,
+                llm,
+                verifier=verifier,
+                deadline=deadline,
+                references=references,
+                reference_retriever_factory=reference_retriever_factory,
+                reference_verifier=reference_verifier,
+                concurrency=configuration.spec_review_concurrency,
+                run_id=run_id,
+                review_mode=review_mode,
+            )
