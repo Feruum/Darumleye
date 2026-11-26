@@ -59,15 +59,15 @@ test('setup has only one entry point to the prepared example', () => {
   expect(markup).not.toContain('Взять учебный пример')
 })
 
-test('setup offers all three review modes with paired selected by default', () => {
+test('setup offers only paired and direct validation with paired selected by default', () => {
   const noop = () => {}
   const props = { references: [], cancelled: false, loadingExample: false, onFileSelect: noop, onReferencesChange: noop, onReferenceError: noop, onViewExample: noop, onSubmit: noop }
-  for (const mode of [undefined, 'multi_agent', 'multi_agent_direct', 'legacy'] as const) {
+  for (const mode of [undefined, 'multi_agent', 'multi_agent_direct'] as const) {
     const markup = renderToStaticMarkup(createElement(ReviewSetup, { ...props, reviewMode: mode }))
     const summary = markup.match(/<summary>(.*?)<\/summary>/s)?.[1]
     expect(summary).toContain(agentReviewModeLabels[mode ?? 'multi_agent'])
     const radios = markup.match(/<input[^>]+type="radio"[^>]*>/g) ?? []
-    expect(radios).toHaveLength(3)
+    expect(radios.map(radio => radio.match(/value="([^"]+)"/)?.[1])).toEqual(['multi_agent', 'multi_agent_direct'])
     expect(radios.filter(radio => radio.includes('checked=""')).map(radio => radio.match(/value="([^"]+)"/)?.[1])).toEqual([mode ?? 'multi_agent'])
   }
 })

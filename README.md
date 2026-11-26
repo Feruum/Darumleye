@@ -11,7 +11,7 @@
 Spec Review checks FinTech requirements before development. It extracts requirements from PDF, MD, TXT, DOCX, XLSX, CSV, JPG/JPEG and PNG documents, checks their quality and consistency, and produces a Russian-language report with verified source quotations.
 
 - **Review:** source-grounded requirement checks, mandatory coverage and code-based readiness verdict.
-- **Validation:** classic (`legacy`), paired (`multi_agent`, default), and direct (`multi_agent_direct`). The two multi-agent modes use five independent experts, a shared global validator, Evidence Graph and Finalizer.
+- **Validation:** the upload form offers paired validation (`multi_agent`, default) and direct validation (`multi_agent_direct`). Both use five independent experts, a shared global validator, Evidence Graph and Finalizer.
 - **Workspace:** interactive findings, source document inspector, correction proposals, report download and chat over completed reviews.
 - **Optional:** review against selected regulations, independent Nace Drex verification, and Langfuse run telemetry.
 

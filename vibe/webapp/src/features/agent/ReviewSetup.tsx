@@ -22,7 +22,6 @@ const stepLabels = [
 const reviewModeOptions = [
   { mode: 'multi_agent', description: 'Три парных валидатора сверяют выводы экспертов перед общей проверкой.' },
   { mode: 'multi_agent_direct', description: 'Общий валидатор получает выводы каждого эксперта напрямую.' },
-  { mode: 'legacy', description: 'Модель проверяет требования по отдельности и оценивает весь набор.' },
 ] as const
 
 // Adapted from Skiper UI's free ArrowIcon (Skiper99):

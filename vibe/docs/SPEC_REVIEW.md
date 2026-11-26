@@ -4,7 +4,7 @@ Spec Review is the FinTech requirements validator built for the [BCC-HUB × MNU 
 
 ## Pipeline
 
-New reviews use the **`multi_agent` workflow by default**, on GPT-6 Luna in the selected configuration. Five independent experts, the optional Reference Inspector, three paired validators, global evidence consolidation and the Finalizer produce a verified Evidence Graph; see the [current Spec Review 2.0 architecture](MULTI_AGENT_REVIEW.ru.md). Select `multi_agent_direct` to pass observations directly from the experts to global validation. Both multi-agent routes include the Finalizer and downstream checks. Select `legacy` for the classic pipeline shown below, which uses the same document parser and citation checks.
+New reviews use the **`multi_agent` workflow by default**, on GPT-6 Luna in the selected configuration. Five independent experts, the optional Reference Inspector, three paired validators, global evidence consolidation and the Finalizer produce a verified Evidence Graph; see the [current Spec Review 2.0 architecture](MULTI_AGENT_REVIEW.ru.md). Select `multi_agent_direct` to pass observations directly from the experts to global validation. Both multi-agent routes include the Finalizer and downstream checks. The CLI and API also accept `legacy` for the classic pipeline shown below, which uses the same document parser and citation checks.
 
 All three modes default to at most nine simultaneous primary model calls per review. Set `AGENT_SPEC_REVIEW_CONCURRENCY` to a positive integer to change that limit. When reference documents are selected, the Reference Inspector has one independent slot, allowing up to ten simultaneous calls at the default setting. Actual concurrency depends on how many tasks are ready.
 
