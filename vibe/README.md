@@ -88,5 +88,3 @@ Use focused checks for individual changes. See [commands](docs/COMMANDS.md), [te
 - [Chat UI](docs/CHAT_UI.md) and [interface design](design.md)
 - [Database](docs/LOCAL_DATABASE.md), [storage](docs/STORAGE.md), [deployment](docs/DEPLOYMENT.md)
 - [Observability](docs/LANGFUSE.md) and [verification history](docs/VERIFICATION.md)
-
-Apache License 2.0. Preserve [LICENSE](LICENSE), [NOTICE](NOTICE) and the original attribution.
