@@ -143,6 +143,10 @@ Each trial starts with its own empty checkpoint directory. Interrupted attempts 
 
 The runner evaluates each saved report against its original document. With an unlabelled stress input, it records structural validity and timing. Defect recall requires an independently annotated source.
 
+To exercise the Reference Inspector, add `--reference-manifest vibe/docs/examples/quality-benchmark/reference-rubric.json` to the comparison command and use a fresh output directory. This shared synthetic rubric checks measurable conditions and consistency of numerical acceptance criteria when they occur. The runner passes the same manifest to all three modes. Each trial starts with its own empty reference index. The organizer-source trial in this configuration includes the supplementary rubric. The official input SHA-256 check still applies.
+
+The experiment records the SHA-256 of the manifest and the ordered reference originals. A change to either prevents resume. The independent audit checks the source register, reference status, requirement IDs, and both originals cited by each reference observation. Paired and direct reports must also show a completed Reference Inspector in the evidence graph. Zero reference observations can be valid. An unavailable comparison fails the benchmark audit even when the CLI produced a core report. The report and its usage remain available for inspection.
+
 To measure expert-confirmed false findings, use independent analyst decisions tied to the SHA-256 of each report file. A reviewer assigns common defect IDs to confirmed findings, so repeated descriptions of a defect count once. An empty list marks a finding explicitly rejected by the analyst. Use `null` or omit an ID when the assessment is pending or uncertain. For example, the input format is
 
 ```json

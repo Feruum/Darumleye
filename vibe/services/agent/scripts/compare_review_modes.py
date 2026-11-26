@@ -20,6 +20,7 @@ from uuid import uuid4
 from pydantic_core import ErrorType
 
 from agent.config.settings import Settings
+from agent.services.spec_reference_review import ReferenceDocument, load_reference_files
 from agent.services.spec_review import _VALIDATION_REASONS
 from agent.services.spec_stage_retry import TRANSIENT_RETRY_BACKOFF_SECONDS, TRANSIENT_RETRY_LIMIT
 from agent.spec_cli_progress import STAGES, TASK_RECOVERY_MESSAGES
@@ -34,6 +35,20 @@ else:
 
 
 COMPARISON_MODES = ("legacy", "multi_agent", "multi_agent_direct")
+
+
+@dataclass(frozen=True)
+class ReferenceSelection:
+    manifest: Path
+    manifest_sha256: str
+    documents: list[ReferenceDocument]
+
+    @property
+    def identity(self) -> dict:
+        return {
+            "manifest_sha256": self.manifest_sha256,
+            "sources": {item.source.id: item.source.sha256 for item in self.documents},
+        }
 
 
 @dataclass(frozen=True)
@@ -134,6 +149,7 @@ def compare_pair(baseline: dict, candidate: dict) -> dict:
               if first_hash and second_hash else None)
     first_settings, second_settings = (run.get("trial_settings") for run in pair)
     same_settings = first_settings == second_settings if first_settings and second_settings else None
+    same_references = baseline.get("references") == candidate.get("references")
     complete = all(run["status"] == "completed" and run.get("structural_passed") for run in pair)
     within_budget = None
     if baseline_tokens is not None and baseline_tokens > 0 and candidate_tokens is not None:
@@ -142,12 +158,12 @@ def compare_pair(baseline: dict, candidate: dict) -> dict:
     return {
         "case": baseline["case"], "repetition": baseline["repetition"], "both_valid": complete,
         "same_model": same_model, "same_source": same_input, "independent_runs": independent,
-        "same_implementation": frozen, "same_settings": same_settings,
+        "same_implementation": frozen, "same_settings": same_settings, "same_references": same_references,
         "baseline_mode": baseline["mode"], "candidate_mode": candidate["mode"],
         "baseline_tokens": baseline_tokens, "candidate_tokens": candidate_tokens,
         f"{baseline['mode']}_tokens": baseline_tokens, f"{candidate['mode']}_tokens": candidate_tokens,
         "tokens_within_10_percent": within_budget,
-        "eligible_for_equal_budget_analysis": all((complete, same_model, same_input, independent, frozen, same_settings, within_budget)),
+        "eligible_for_equal_budget_analysis": all((complete, same_model, same_input, same_references, independent, frozen, same_settings, within_budget)),
         "annotation_recall_delta": (round(candidate_recall - baseline_recall, 4)
                                     if complete and baseline_recall is not None and candidate_recall is not None else None),
         "elapsed_seconds_delta": round(candidate["elapsed_seconds"] - baseline["elapsed_seconds"], 3) if complete else None,
@@ -219,7 +235,9 @@ def implementation_fingerprint() -> str:
     project = Path(__file__).resolve().parents[1]
     files = [*sorted((project / "src/agent/services").glob("spec_*.py")),
              project / "src/agent/spec_review_cli.py", project / "src/agent/utils/review_telemetry.py",
-             project / "src/agent/config/settings.py", project / "uv.lock"]
+             project / "src/agent/config/settings.py", project / "src/agent/spec_cli_progress.py",
+             Path(__file__).resolve(), project / "scripts/evaluate_spec_report.py",
+             project / "scripts/evaluate_quality_benchmark.py", project / "uv.lock"]
     digest = sha256()
     for file in files:
         digest.update(str(file.relative_to(project)).encode())
@@ -231,12 +249,18 @@ def trial_settings(env_file: Path, timeout: int) -> dict:
     config = Settings(_env_file=env_file)
     return {
         "model": config.llm_model, "endpoint_sha256": sha256(config.llm_base_url.encode()).hexdigest(),
+        "reasoning_effort": config.spec_review_reasoning_effort,
         "analysis_limit_seconds": timeout, "request_timeout_seconds": config.llm_timeout_seconds,
         "request_retries": config.llm_max_retries, "primary_concurrency": config.spec_review_concurrency,
         "task_transient_retry_limit": TRANSIENT_RETRY_LIMIT,
         "task_transient_retry_backoff_seconds": TRANSIENT_RETRY_BACKOFF_SECONDS,
         "drex_enabled": config.spec_review_use_nace, "drex_model": config.nace_model,
         "drex_timeout_seconds": config.nace_timeout_seconds,
+        "reference_embedding_model": config.embedding_model or None,
+        "reference_embedding_endpoint_sha256": (
+            sha256((config.embedding_base_url or config.llm_base_url).encode()).hexdigest()
+            if config.embedding_model else None
+        ),
     }
 
 
@@ -407,9 +431,10 @@ def stage_activity(stderr: str | bytes | None) -> dict[str, dict[str, int]]:
     return {key: dict(values) for key, values in counts.items()}
 
 
-def run_trial(trial: Trial, output_dir: Path, env_file: Path, timeout: int) -> dict:
+def run_trial(trial: Trial, output_dir: Path, env_file: Path, timeout: int,
+              references: ReferenceSelection | None = None) -> dict:
     name = trial.name
-    if any((output_dir / f"{name}{ext}").exists() for ext in (".json", ".usage.json", ".checkpoints")):
+    if any((output_dir / f"{name}{ext}").exists() for ext in (".json", ".usage.json", ".checkpoints", ".reference-index")):
         # Preserve artifacts from a process interrupted before saving its trial record.
         name = f"{name}-restart-{uuid4().hex[:12]}"
     report = output_dir / f"{name}.json"
@@ -423,6 +448,9 @@ def run_trial(trial: Trial, output_dir: Path, env_file: Path, timeout: int) -> d
         "--output", str(report), "--review-mode", trial.mode, "--timeout-seconds", str(timeout),
         "--metrics-output", str(usage), "--env-file", str(env_file), "--checkpoint-dir", str(checkpoints),
     ]
+    if references:
+        command.extend(["--reference-manifest", str(references.manifest),
+                        "--reference-index", str(output_dir / f"{name}.reference-index")])
     try:
         result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=timeout+360)
         exit_code = result.returncode
@@ -437,6 +465,7 @@ def run_trial(trial: Trial, output_dir: Path, env_file: Path, timeout: int) -> d
         **failure_diagnostics(stderr, exit_code=exit_code, process_timeout=exit_code == 124),
         **stage_activity(stderr),
         "checkpoints": checkpoints.name,
+        "references": references.identity if references else None,
         "implementation_fingerprint": fingerprint, "trial_settings": settings,
         "implementation_unchanged_during_trial": fingerprint == implementation_fingerprint(),
         "usage": json.loads(usage.read_text()) if usage.exists() else None,
@@ -444,20 +473,24 @@ def run_trial(trial: Trial, output_dir: Path, env_file: Path, timeout: int) -> d
     if exit_code or not report.exists():
         return record
     try:
-        structural = evaluate(trial.case.source, report, official=trial.case.official)
+        structural = evaluate(trial.case.source, report, official=trial.case.official,
+                              references=references.documents if references else None)
         payload = json.loads(report.read_text())
         # Every newly generated trial must attest the requested mode explicitly.
         # Mode-less historical passports remain readable by the standalone auditor.
         if payload["passport"].get("review_mode") != trial.mode:
             raise ValueError("Unexpected report mode")
-        record.update(status="completed", structural=structural,
-                      structural_passed=structural["passed"] == structural["total"], report=report.name)
+        passed = structural["passed"] == structural["total"]
+        record.update(status="completed" if passed else "failed", structural=structural,
+                      structural_passed=passed, report=report.name)
+        if not passed:
+            record["failure_category"] = "audit_failed"
         if trial.case.gold:
             record["quality"] = evaluate_case(trial.case.gold, report)
         else:
             record["quality"] = None
     except (ValueError, TypeError, KeyError, OSError) as error:
-        record.update(status="failed", structural_passed=False, audit_error=type(error).__name__)
+        record.update(status="failed", structural_passed=False, failure_category="audit_failed", audit_error=type(error).__name__)
     return record
 
 
@@ -469,6 +502,7 @@ def main() -> int:
     parser.add_argument("--env-file", type=Path, default=root / ".env")
     parser.add_argument("--official-source", type=Path, default=root / ".artifacts/requirements.md")
     parser.add_argument("--stress-source", type=Path, help="An additional, unlabelled input for a structural and timing comparison")
+    parser.add_argument("--reference-manifest", type=Path, help="Use and audit the same selected reference originals in every trial")
     parser.add_argument("--official-gold", type=Path, default=root / ".artifacts/organizer-eval/quality-anchor-gold.json", help="Optional retrospective labels; not organizer ground truth")
     parser.add_argument("--case", action="append", choices=["official", "stress", *sorted(p.name.removesuffix(".gold.json") for p in benchmark.glob("*.gold.json"))])
     parser.add_argument("--repetitions", type=int, default=3)
@@ -504,22 +538,33 @@ def main() -> int:
     if not cases or any(not case.source.is_file() for case in cases):
         parser.error("Selected source file does not exist")
     trials = experiment_matrix(cases, args.repetitions)
+    output = args.output_dir.resolve()
+    references = None
+    if args.reference_manifest:
+        manifest_path = args.reference_manifest.resolve()
+        try:
+            documents = load_reference_files(manifest_path, output / "experiment.json", output / "comparison.json")
+            if not documents:
+                parser.error("A selected reference manifest must contain at least one source")
+            references = ReferenceSelection(manifest_path, sha256(manifest_path.read_bytes()).hexdigest(), documents)
+        except (OSError, ValueError) as error:
+            parser.error(f"Invalid reference manifest or source ({type(error).__name__})")
     if args.dry_run:
         print("\n".join(trial.name for trial in trials))
         return 0
-    output = args.output_dir.resolve()
     env_file = args.env_file.resolve()
     manifest = {
         "implementation": implementation_fingerprint(), "settings": trial_settings(env_file, args.timeout_seconds),
         "trial_names": [trial.name for trial in trials],
         "sources": {case.name: sha256(case.source.read_bytes()).hexdigest() for case in cases},
+        "references": references.identity if references else None,
         "annotations": {case.name: sha256(case.gold.read_bytes()).hexdigest() if case.gold else None for case in cases},
     }
     records = []
     manifest_path = output / "experiment.json"
     if args.resume:
         if not manifest_path.is_file() or json.loads(manifest_path.read_bytes()) != manifest:
-            parser.error("Cannot resume: experiment sources, settings, or implementation differ")
+            parser.error("Cannot resume: experiment sources, references, settings, or implementation differ")
         comparison = output / "comparison.json"
         records = json.loads(comparison.read_bytes())["runs"] if comparison.exists() else []
         saved = [(r["case"], r["mode"], r["repetition"]) for r in records]
@@ -532,7 +577,7 @@ def main() -> int:
         write_json(manifest_path, manifest)
     for trial in trials[len(records):]:
         print(f"Running {trial.name}", flush=True)
-        record = run_trial(trial, output, env_file, args.timeout_seconds)
+        record = run_trial(trial, output, env_file, args.timeout_seconds, references)
         records.append(record)
         write_json(output / "comparison.json", {
             "timeout_seconds": args.timeout_seconds, "repetitions": args.repetitions,

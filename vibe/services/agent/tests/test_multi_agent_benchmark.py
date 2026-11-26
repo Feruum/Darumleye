@@ -369,3 +369,99 @@ def test_cold_trial_uses_a_fresh_checkpoint_tree_after_interruption(tmp_path, mo
     assert checkpoint != stale and checkpoint.parent == tmp_path
     assert record["checkpoints"] == checkpoint.name
     assert (stale / "previous").is_file()
+
+
+def test_shared_reference_manifest_reaches_every_mode_and_binds_resume(tmp_path, monkeypatch):
+    from test_spec_review import reference_manifest
+
+    output = tmp_path / "experiment"
+    attachment = tmp_path / "reference.txt"
+    attachment.write_text("Synthetic acceptance criterion.")
+    manifest = tmp_path / "references.json"
+    manifest.write_text(json.dumps([{**reference_manifest(), "path": attachment.name}]))
+    args = ["compare", "--case", "defective", "--output-dir", str(output), "--repetitions", "1",
+            "--reference-manifest", str(manifest)]
+    monkeypatch.setattr(sys, "argv", args)
+    monkeypatch.setattr(compare_review_modes, "trial_settings", lambda *_: {"model": "fixture"})
+    commands = []
+    audited_hashes = []
+
+    def invoke(command, **kwargs):
+        commands.append(command)
+        assert Path(command[command.index("--reference-manifest") + 1]) == manifest
+        mode = command[command.index("--review-mode") + 1]
+        report = Path(command[command.index("--output") + 1])
+        report.write_text(json.dumps({"passport": {"review_mode": mode}}))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    def audit(_source, _report, *, references, official):
+        audited_hashes.append([ref.document.sha256 for ref in references])
+        return {"passed": 1, "total": 2}  # A generated core report failed the independent audit.
+
+    monkeypatch.setattr(compare_review_modes.subprocess, "run", invoke)
+    monkeypatch.setattr(compare_review_modes, "evaluate", audit)
+    monkeypatch.setattr(compare_review_modes, "evaluate_case", lambda *_: {})
+    assert compare_review_modes.main() == 1
+    digest = sha256(attachment.read_bytes()).hexdigest()
+    identity = {"manifest_sha256": sha256(manifest.read_bytes()).hexdigest(), "sources": {"S-001": digest}}
+    assert json.loads((output / "experiment.json").read_bytes())["references"] == identity
+    records = json.loads((output / "comparison.json").read_bytes())["runs"]
+    assert all(r["references"] == identity and r["failure_category"] == "audit_failed" for r in records)
+    assert all(r["status"] == "failed" and r["report"] for r in records)
+    assert audited_hashes == [[digest]] * 3
+    assert len({cmd[cmd.index("--reference-index") + 1] for cmd in commands}) == 3
+    monkeypatch.setattr(sys, "argv", [*args, "--resume"])
+    original = manifest.read_bytes()
+    manifest.write_bytes(original + b" ")
+    with pytest.raises(SystemExit):
+        compare_review_modes.main()
+    manifest.write_bytes(original)
+    attachment.write_text("Changed original.")
+    with pytest.raises(SystemExit):
+        compare_review_modes.main()
+    assert len(commands) == 3
+
+
+@pytest.mark.parametrize("mode", compare_review_modes.COMPARISON_MODES)
+async def test_reference_audit_checks_both_originals_ids_and_selected_inspector(tmp_path, mode):
+    from agent.services.spec_reference_review import ReferenceManifestEntry, prepare_references
+    from agent.services.spec_review import extract_specification, review_specification
+    from test_spec_review import REFERENCE_QUOTE, TEXT, payloads, provider, reference_manifest, reference_payload
+
+    source = tmp_path / "spec.md"
+    source.write_text(TEXT)
+    references = prepare_references(
+        [ReferenceManifestEntry.model_validate(reference_manifest())],
+        [("ref.txt", "text/plain", REFERENCE_QUOTE.encode())],
+    )
+    report = await review_specification(
+        extract_specification(source.name, "text/markdown", source.read_bytes()),
+        provider(payloads() + [reference_payload()], []), references=references, review_mode=mode,
+    )
+    report_path = tmp_path / "report.json"
+    report_path.write_text(report.model_dump_json())
+    audited = evaluate(source, report_path, references=references)
+    assert audited["passed"] == audited["total"], [x for x in audited["checks"] if not x["passed"]]
+    assert audited["metrics"]["reference_observations"] == 1
+    assert audited["metrics"]["experts_completed"] == (None if mode == "legacy" else 6)
+
+    def failed_checks(payload):
+        report_path.write_text(json.dumps(payload))
+        return {x["criterion"] for x in evaluate(source, report_path, references=references)["checks"] if not x["passed"]}
+
+    for side in ("specification_evidence", "reference_evidence"):
+        payload = report.model_dump()
+        payload["reference_review"]["observations"][0][side][0]["quote"] = "Invented citation."
+        assert "Reference findings cite both original documents" in failed_checks(payload)
+    payload = report.model_dump()
+    payload["reference_review"]["observations"][0]["requirement_ids"] = ["R-999"]
+    assert "Reference finding IDs and requirement links are valid" in failed_checks(payload)
+    payload = report.model_dump()
+    payload["reference_review"]["status"] = "unavailable"
+    if mode != "legacy":
+        next(row for row in payload["evidence_graph"]["experts"]
+             if row["role"] == "reference_inspector")["status"] = "unavailable"
+    failures = failed_checks(payload)
+    assert "Selected reference comparison completed" in failures
+    if mode != "legacy":
+        assert "Selected Reference Inspector completed" in failures
