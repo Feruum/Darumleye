@@ -11,6 +11,29 @@ from scripts.compare_review_modes import BenchmarkCase, experiment_matrix, paire
 from scripts.evaluate_spec_report import evaluate
 
 
+@pytest.mark.parametrize("requested", compare_review_modes.COMPARISON_MODES)
+@pytest.mark.parametrize("returned", [*compare_review_modes.COMPARISON_MODES, None])
+def test_new_trial_requires_an_explicit_matching_passport(tmp_path, monkeypatch, requested, returned):
+    trial = compare_review_modes.Trial(BenchmarkCase("example", tmp_path / "test.txt", None), requested, 1)
+
+    def fake_cli(command, **kwargs):
+        assert command[command.index("--review-mode") + 1] == requested
+        output = Path(command[command.index("--output") + 1])
+        passport = {} if returned is None else {"review_mode": returned}
+        output.write_text(json.dumps({"passport": passport}))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(compare_review_modes.subprocess, "run", fake_cli)
+    monkeypatch.setattr(compare_review_modes, "trial_settings", lambda *_: {})
+    monkeypatch.setattr(compare_review_modes, "evaluate", lambda *_, **__: {"passed": 1, "total": 1})
+    result = compare_review_modes.run_trial(trial, tmp_path, tmp_path / ".env", 900)
+    if returned == requested:
+        assert result["status"] == "completed" and result["structural_passed"]
+    else:
+        assert result["status"] == "failed" and not result["structural_passed"]
+        assert result["audit_error"] == "ValueError"
+
+
 def test_failed_trial_persists_only_allowlisted_provider_diagnostic(tmp_path, monkeypatch):
     trial = compare_review_modes.Trial(BenchmarkCase("example", tmp_path / "test.txt", None), "legacy", 1)
     label = compare_review_modes.STAGES["individual"]
@@ -140,17 +163,21 @@ def test_stress_input_is_an_optional_unlabelled_cli_case(tmp_path, monkeypatch, 
         compare_review_modes.main()
     monkeypatch.setattr(sys, "argv", [*args, "--stress-source", str(f)])
     assert compare_review_modes.main() == 0
-    assert capsys.readouterr().out.splitlines() == ["stress-multi_agent_direct-01", "stress-multi_agent-01"]
-
-
-def test_experiment_matrix_alternates_modes_and_repeats_each_case():
-    case = BenchmarkCase("example", Path("example.md"), None)
-    matrix = experiment_matrix([case], 3)
-    assert [(run.mode, run.repetition) for run in matrix] == [
-        ("multi_agent_direct", 1), ("multi_agent", 1), ("multi_agent", 2),
-        ("multi_agent_direct", 2), ("multi_agent_direct", 3), ("multi_agent", 3),
+    assert capsys.readouterr().out.splitlines() == [
+        "stress-legacy-01", "stress-multi_agent-01", "stress-multi_agent_direct-01",
     ]
-    assert len({run.name for run in matrix}) == 6
+
+
+def test_experiment_rotates_each_mode_through_all_positions_across_cases_and_repetitions():
+    cases = [BenchmarkCase(str(i), Path("example.md"), None) for i in range(3)]
+    matrix = experiment_matrix(cases, 3)
+    modes = ("legacy", "multi_agent", "multi_agent_direct")
+    for case_index, case in enumerate(cases):
+        for repetition in range(1, 4):
+            offset = (case_index + repetition - 1) % 3
+            actual = [trial.mode for trial in matrix if trial.case == case and trial.repetition == repetition]
+            assert tuple(actual) == modes[offset:] + modes[:offset]
+    assert len({run.name for run in matrix}) == len(matrix) == 27
 
 
 def test_summary_keeps_failed_trials_and_missing_token_data_visible():
@@ -199,8 +226,11 @@ def test_interrupted_matrix_resumes_after_failed_trial_with_same_configuration(t
     monkeypatch.setattr(sys, "argv", [*args, "--resume"])
     assert compare_review_modes.main() == 1
     saved = json.loads((output / "comparison.json").read_text())["runs"]
-    assert saved[:1] == previous and len(saved) == 2
-    assert calls == ["defective-multi_agent_direct-01", "defective-multi_agent-01", "defective-multi_agent-01"]
+    assert saved[:1] == previous and len(saved) == 3
+    assert calls == [
+        "defective-legacy-01", "defective-multi_agent-01", "defective-multi_agent-01",
+        "defective-multi_agent_direct-01",
+    ]
 
 
 def test_pair_comparisons_do_not_treat_missing_usage_as_equal_budget():
@@ -211,6 +241,32 @@ def test_pair_comparisons_do_not_treat_missing_usage_as_equal_budget():
     assert pair["annotation_recall_delta"] == 0.25
     assert pair["same_model"] is True
     assert paired_comparisons([multi_agent, {**multi, "usage": None}])[0]["tokens_within_10_percent"] is None
+
+
+def test_all_three_ordered_pairs_keep_historical_token_keys_and_failed_trials():
+    legacy = {"case": "a", "mode": "legacy", "repetition": 1, "status": "completed",
+              "structural_passed": True, "elapsed_seconds": 15,
+              "usage": {"input_tokens": 8, "output_tokens": 2}}
+    paired = {**legacy, "mode": "multi_agent", "elapsed_seconds": 10,
+              "usage": {"input_tokens": 12, "output_tokens": 8}}
+    direct = {**paired, "mode": "multi_agent_direct", "status": "failed", "usage": None}
+    comparisons = paired_comparisons([direct, legacy, paired])
+    assert [(row["baseline_mode"], row["candidate_mode"]) for row in comparisons] == [
+        ("legacy", "multi_agent"), ("legacy", "multi_agent_direct"), ("multi_agent", "multi_agent_direct"),
+    ]
+    valid = comparisons[0]
+    assert valid["legacy_tokens"] == valid["baseline_tokens"] == 10
+    assert valid["multi_agent_tokens"] == valid["candidate_tokens"] == 20
+    assert valid["both_valid"] and valid["elapsed_seconds_delta"] == -5
+    for row in comparisons[1:]:
+        assert not row["both_valid"] and not row["eligible_for_equal_budget_analysis"]
+        assert row["multi_agent_direct_tokens"] is row["candidate_tokens"] is None
+        assert row["elapsed_seconds_delta"] is row["annotation_recall_delta"] is None
+
+    # Both generations of historical two-route comparisons remain readable on their own.
+    assert paired_comparisons([legacy, paired]) == [valid]
+    assert paired_comparisons([paired, direct]) == [comparisons[2]]
+    assert paired_comparisons([{**legacy, "repetition": 2}, paired]) == []
 
 
 def test_comparable_budget_requires_same_frozen_case_and_two_independent_runs():

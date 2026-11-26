@@ -1,4 +1,4 @@
-"""Repeat paired live review trials; audit saved reports without treating annotations as truth."""
+"""Compare legacy, paired and direct review on the same inputs and audit saved reports."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import sys
 from collections import Counter
 from dataclasses import dataclass
 from hashlib import sha256
+from itertools import combinations
 from pathlib import Path
 from statistics import mean
 from time import monotonic
@@ -31,7 +32,7 @@ else:
     from evaluate_spec_report import evaluate
 
 
-COMPARISON_MODES = ("multi_agent", "multi_agent_direct")
+COMPARISON_MODES = ("legacy", "multi_agent", "multi_agent_direct")
 
 
 @dataclass(frozen=True)
@@ -54,12 +55,13 @@ class Trial:
 
 
 def experiment_matrix(cases: list[BenchmarkCase], repetitions: int) -> list[Trial]:
-    return [
-        Trial(case, mode, repetition)
-        for case_index, case in enumerate(cases)
-        for repetition in range(1, repetitions + 1)
-        for mode in (COMPARISON_MODES[::-1] if (case_index + repetition) % 2 else COMPARISON_MODES)
-    ]
+    trials = []
+    for case_index, case in enumerate(cases):
+        for repetition in range(1, repetitions + 1):
+            offset = (case_index + repetition - 1) % len(COMPARISON_MODES)
+            order = COMPARISON_MODES[offset:] + COMPARISON_MODES[:offset]
+            trials.extend(Trial(case, mode, repetition) for mode in order)
+    return trials
 
 
 def summarize_runs(runs: list[dict]) -> dict:
@@ -97,46 +99,60 @@ def summarize_runs(runs: list[dict]) -> dict:
     return by_case
 
 
+def compare_pair(baseline: dict, candidate: dict) -> dict:
+    def token_count(record):
+        usage = record.get("usage") or {}
+        counts = usage.get("input_tokens"), usage.get("output_tokens")
+        return sum(counts) if None not in counts else None
+
+    pair = baseline, candidate
+    baseline_tokens, candidate_tokens = map(token_count, pair)
+    baseline_recall, candidate_recall = ((run.get("quality") or {}).get("annotation_recall") for run in pair)
+    baseline_report, candidate_report = (run.get("structural") or {} for run in pair)
+
+    def same_report_field(field):
+        first, second = baseline_report.get(field), candidate_report.get(field)
+        return first == second if first and second else None
+
+    same_model = same_report_field("model")
+    same_input = same_report_field("source_sha256")
+    same_run = same_report_field("run_id")
+    independent = not same_run if same_run is not None else None
+    first_hash, second_hash = (run.get("implementation_fingerprint") for run in pair)
+    frozen = ((first_hash == second_hash and all(run.get("implementation_unchanged_during_trial") is True for run in pair))
+              if first_hash and second_hash else None)
+    first_settings, second_settings = (run.get("trial_settings") for run in pair)
+    same_settings = first_settings == second_settings if first_settings and second_settings else None
+    complete = all(run["status"] == "completed" and run.get("structural_passed") for run in pair)
+    within_budget = None
+    if baseline_tokens is not None and baseline_tokens > 0 and candidate_tokens is not None:
+        within_budget = abs(baseline_tokens - candidate_tokens) <= baseline_tokens * 0.1
+
+    return {
+        "case": baseline["case"], "repetition": baseline["repetition"], "both_valid": complete,
+        "same_model": same_model, "same_source": same_input, "independent_runs": independent,
+        "same_implementation": frozen, "same_settings": same_settings,
+        "baseline_mode": baseline["mode"], "candidate_mode": candidate["mode"],
+        "baseline_tokens": baseline_tokens, "candidate_tokens": candidate_tokens,
+        f"{baseline['mode']}_tokens": baseline_tokens, f"{candidate['mode']}_tokens": candidate_tokens,
+        "tokens_within_10_percent": within_budget,
+        "eligible_for_equal_budget_analysis": all((complete, same_model, same_input, independent, frozen, same_settings, within_budget)),
+        "annotation_recall_delta": (round(candidate_recall - baseline_recall, 4)
+                                    if complete and baseline_recall is not None and candidate_recall is not None else None),
+        "elapsed_seconds_delta": round(candidate["elapsed_seconds"] - baseline["elapsed_seconds"], 3) if complete else None,
+    }
+
+
 def paired_comparisons(runs: list[dict]) -> list[dict]:
-    matched = {(r["case"], r["repetition"], r["mode"]): r for r in runs}
-    result = []
-    for case, repetition in sorted({(r["case"], r["repetition"]) for r in runs}):
-        a, b = (matched.get((case, repetition, mode)) for mode in COMPARISON_MODES)
-        if not a or not b:
-            continue
-        def tokens(record):
-            usage = record.get("usage") or {}
-            i, o = usage.get("input_tokens"), usage.get("output_tokens")
-            return i + o if i is not None and o is not None else None
-        def recall(record):
-            return (record.get("quality") or {}).get("annotation_recall")
-        ta, tb = tokens(a), tokens(b)
-        ra, rb = recall(a), recall(b)
-        ma, mb = ((r.get("structural") or {}).get("model") for r in (a, b))
-        sa, sb = ((r.get("structural") or {}).get("source_sha256") for r in (a, b))
-        ida, idb = ((r.get("structural") or {}).get("run_id") for r in (a, b))
-        fa, fb = (r.get("implementation_fingerprint") for r in (a, b))
-        ca, cb = (r.get("trial_settings") for r in (a, b))
-        complete = all(r["status"] == "completed" and r.get("structural_passed") for r in (a, b))
-        frozen = (fa == fb and all(r.get("implementation_unchanged_during_trial") is True for r in (a, b))) if fa and fb else None
-        same_model = (ma == mb) if ma and mb else None
-        same_input = (sa == sb) if sa and sb else None
-        independent = (ida != idb) if ida and idb else None
-        # Compare against the baseline, rather than allowing 11.1% growth against a larger second trial.
-        within_budget = abs(ta - tb) <= ta * 0.1 if ta is not None and ta > 0 and tb is not None else None
-        result.append({
-            "case": case, "repetition": repetition, "both_valid": complete,
-            "same_model": same_model, "same_source": same_input, "independent_runs": independent,
-            "same_implementation": frozen,
-            "same_settings": ca == cb if ca and cb else None,
-            "baseline_mode": a["mode"], "candidate_mode": b["mode"],
-            "multi_agent_tokens": ta, "multi_agent_direct_tokens": tb,
-            "tokens_within_10_percent": within_budget,
-            "eligible_for_equal_budget_analysis": all((complete, same_model, same_input, independent, frozen, ca, ca == cb, within_budget)),
-            "annotation_recall_delta": round(rb - ra, 4) if complete and ra is not None and rb is not None else None,
-            "elapsed_seconds_delta": round(b["elapsed_seconds"] - a["elapsed_seconds"], 3) if complete else None,
-        })
-    return result
+    by_case = {}
+    for run in runs:
+        by_case.setdefault((run["case"], run["repetition"]), {})[run["mode"]] = run
+    return [
+        compare_pair(group[baseline], group[candidate])
+        for _, group in sorted(by_case.items())
+        for baseline, candidate in combinations(COMPARISON_MODES, 2)
+        if baseline in group and candidate in group
+    ]
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -408,7 +424,9 @@ def run_trial(trial: Trial, output_dir: Path, env_file: Path, timeout: int) -> d
     try:
         structural = evaluate(trial.case.source, report, official=trial.case.official)
         payload = json.loads(report.read_text())
-        if payload["passport"].get("review_mode", "legacy") != trial.mode:
+        # Every newly generated trial must attest the requested mode explicitly.
+        # Mode-less historical passports remain readable by the standalone auditor.
+        if payload["passport"].get("review_mode") != trial.mode:
             raise ValueError("Unexpected report mode")
         record.update(status="completed", structural=structural,
                       structural_passed=structural["passed"] == structural["total"], report=report.name)
@@ -497,7 +515,7 @@ def main() -> int:
         write_json(output / "comparison.json", {
             "timeout_seconds": args.timeout_seconds, "repetitions": args.repetitions,
             "runs": records, "summary": summarize_runs(records), "pairs": paired_comparisons(records),
-            "limitation": "Annotation agreement is not semantic accuracy. Unmatched findings need expert adjudication. No automatic promotion of the new mode.",
+            "limitation": "Annotation agreement is not semantic accuracy. Unmatched findings need expert adjudication. The comparison does not select the default mode.",
         })
         print(f"  {record['status']} ({record['elapsed_seconds']} s)", flush=True)
         if args.fail_fast and (record["status"] != "completed" or not record["structural_passed"]):

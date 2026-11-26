@@ -127,16 +127,16 @@ A negative saving means the assisted process took longer or cost more. Any missi
 
 Report individual trials and the distribution over multiple cases (median, range, and sample count), plus cases that fail the acceptance rubric. Do not claim a general productivity or ROI improvement from the single saved official run.
 
-## Comparing the paired and direct routes
+## Comparing the three review modes
 
-The active benchmark compares the paired control (`multi_agent`) with direct validation (`multi_agent_direct`). The recorded latency and annotation deltas are direct minus paired. Equal-budget comparisons require independent, structurally valid reports on the same source, model, implementation and settings, with total token usage within 10% of the paired control. Per-stage request counts include corrective calls. Future failed trials also retain allowlisted validation reasons observed across overlapping expert batches, even when the cause of the final exit is ambiguous. Archives retain their original mode labels.
+The benchmark runs the original staged review (`legacy`), paired validation (`multi_agent`) and direct validation (`multi_agent_direct`). It rotates their order across cases and repetitions. For each pair, the recorded latency and annotation deltas are the candidate value minus the baseline value. Equal-budget comparisons require independent, structurally valid reports on the same source, model, implementation and settings, with total token usage within 10% of the baseline in that pair. Per-stage request counts include corrective calls. Future failed trials also retain allowlisted validation reasons observed across overlapping expert batches, even when the cause of the final exit is ambiguous. Archives retain their original mode labels.
 
-To run one cold trial of each architecture on the annotated training fixture, the organizer document, and a local stress input, run the following command from the repository root:
+To run nine fresh CLI trials, one for each mode on each input, use the annotated training fixture, the organizer document, and a local stress input. Run the following command from the repository root:
 
 ```bash
 uv run --project vibe/services/agent --frozen python vibe/services/agent/scripts/compare_review_modes.py \
   --case defective --case official --case stress --stress-source /path/to/stress.pdf \
-  --env-file .env --repetitions 1 --timeout-seconds 900 --output-dir .artifacts/direct-comparison
+  --env-file .env --repetitions 1 --timeout-seconds 900 --output-dir .artifacts/review-three-mode-comparison
 ```
 
 The runner evaluates each saved report against its original document. With an unlabelled stress input, it records structural validity and timing. Defect recall requires an independently annotated source.
