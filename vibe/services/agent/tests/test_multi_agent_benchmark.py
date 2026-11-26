@@ -13,6 +13,16 @@ from scripts.compare_review_modes import BenchmarkCase, experiment_matrix, paire
 from scripts.evaluate_spec_report import evaluate
 
 
+def test_experiment_matrix_can_compare_only_the_selected_review_modes(tmp_path):
+    cases = [BenchmarkCase("a", tmp_path / "a.md", None), BenchmarkCase("b", tmp_path / "b.md", None)]
+    modes = ("multi_agent", "multi_agent_direct")
+    trials = experiment_matrix(cases, 1, modes)
+    assert [(trial.case.name, trial.mode) for trial in trials] == [
+        ("a", "multi_agent"), ("a", "multi_agent_direct"),
+        ("b", "multi_agent_direct"), ("b", "multi_agent"),
+    ]
+
+
 @pytest.mark.parametrize("requested", compare_review_modes.COMPARISON_MODES)
 @pytest.mark.parametrize("returned", [*compare_review_modes.COMPARISON_MODES, None])
 def test_new_trial_requires_an_explicit_matching_passport(tmp_path, monkeypatch, requested, returned):

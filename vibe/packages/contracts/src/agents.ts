@@ -214,7 +214,7 @@ export const agentReviewModeLabels: Record<AgentReviewMode, string> = {
 
 export const agentEvidenceRoleSchema = z.enum(['logic_inspector', 'scenario_builder', 'gap_hunter', 'contract_inspector', 'risk_inspector', 'reference_inspector', 'code_checks'])
 export const agentEvidenceKindSchema = z.enum(['requirement', 'evidence', 'observation', 'counterexample', 'finding', 'question', 'reference'])
-const agentEvidenceEdgeKindSchema = z.enum(['cites', 'about', 'contributes_to', 'disagrees_with', 'illustrates', 'asks', 'from_reference'])
+const agentEvidenceEdgeKindSchema = z.enum(['cites', 'about', 'contributes_to', 'disagrees_with', 'illustrates', 'asks', 'from_reference', 'adjudication_context'])
 const agentEvidenceNodeSchema = z.object({
   id: z.string().min(1), kind: agentEvidenceKindSchema, title: z.string().min(1),
   role: agentEvidenceRoleSchema.nullish(), severity: agentSpecFindingSchema.shape.severity.nullish(),
@@ -231,7 +231,10 @@ const agentEvidenceEdgeSchema = z.object({ source: z.string().min(1), target: z.
 export const agentEvidenceGraphSchema = z.object({
   schema_version: z.literal(1), nodes: z.array(agentEvidenceNodeSchema), edges: z.array(agentEvidenceEdgeSchema),
   experts: z.array(z.object({ role: agentEvidenceRoleSchema, status: z.enum(['completed', 'unavailable', 'skipped']), observations: z.number().int().nonnegative() }).strict()),
-  finalization_status: z.enum(['completed', 'deterministic_fallback']), unresolved_count: z.number().int().nonnegative(),
+  finalization_status: z.enum(['completed', 'limited', 'deterministic_fallback']), unresolved_count: z.number().int().nonnegative(),
+  adjudication: z.object({ candidates: z.number().int().nonnegative(), confirmed: z.number().int().nonnegative(),
+    unsupported: z.number().int().nonnegative(), uncertain: z.number().int().nonnegative(), unreviewed: z.number().int().nonnegative() }).strict()
+    .refine(a => a.confirmed + a.unsupported + a.uncertain + a.unreviewed === a.candidates, 'Invalid adjudication coverage counts.').nullish(),
 }).strict().superRefine(({ nodes, edges, experts }, context) => {
   const byId = new Map(nodes.map(node => [node.id, node]))
   const ids = new Set(byId.keys())
@@ -245,6 +248,12 @@ export const agentEvidenceGraphSchema = z.object({
   for (const [index, edge] of edges.entries()) {
     const key = JSON.stringify([edge.source, edge.target, edge.kind])
     if (!ids.has(edge.source) || !ids.has(edge.target) || edge.source === edge.target || edgeKeys.has(key)) context.addIssue({ code: 'custom', path: ['edges', index], message: 'Duplicate or dangling graph edge.' })
+    if (edge.kind === 'adjudication_context') {
+      const source = byId.get(edge.source), target = byId.get(edge.target)
+      if (source?.kind !== 'finding' || target?.kind !== 'evidence' || source.source_id != null || target.source_id != null) {
+        context.addIssue({ code: 'custom', path: ['edges', index], message: 'Adjudication context must link a primary finding to primary-source evidence.' })
+      }
+    }
     edgeKeys.add(key)
   }
 })
@@ -261,6 +270,12 @@ const agentSpecPassportSchema = z.object({
   model: z.string().min(1),
   agent_version: z.string().min(1),
   review_mode: agentReviewModeSchema.optional(),
+  review_profile: z.object({
+    fact_profile: z.enum(['off', 'numeric', 'full']).nullish(),
+    z3_enabled: z.boolean(), reasoning_effort: z.enum(['auto', 'low', 'medium']),
+    adjudication_reasoning_effort: z.enum(['auto', 'inherit', 'low', 'medium']).nullish(),
+    concurrency: z.number().int().positive(), drex_enabled: z.boolean(), references_count: z.number().int().nonnegative(),
+  }).strict().nullish(),
 }).strict()
 
 const agentSpecStatisticsSchema = z.object({

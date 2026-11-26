@@ -53,6 +53,10 @@ class ExpertChat:
             result = {"summary":"Обнаружено замечание.", "merges":[]}
         elif stage == "multi_recheck":
             result = {"status":"disagrees", "comment":"Требуется уточнение."}
+        elif stage == "multi_adjudicate":
+            result = {"decisions": [{"id": row["id"], "status": "confirmed", "severity": row["severity"],
+                                      "rationale": "Подтверждено исходным текстом.", "evidence": row["evidence"][:1]}
+                                     for row in data["findings"]]}
         else:
             raise AssertionError(stage)
         return AIMessage(content=json.dumps(result, ensure_ascii=False), response_metadata={"finish_reason":"stop"})
@@ -64,6 +68,12 @@ async def test_multi_agent_parallel_coverage_and_provenance():
     source = extract_specification("fixture.txt", "text/plain", SOURCE.encode())
     report = await review_specification(source, chat, concurrency=3)
     assert report.passport.review_mode == "multi_agent"
+    assert report.passport.review_profile.model_dump() == {
+        "fact_profile": "full", "z3_enabled": True, "reasoning_effort": "auto",
+        "adjudication_reasoning_effort": "auto", "concurrency": 3,
+        "drex_enabled": False, "references_count": 0,
+    }
+    assert "Профиль фактов: full" in report.report_markdown
     assert report.evidence_graph is not None
     for req in report.requirements:
         assert [c.criterion for c in req.checks] == list(INDIVIDUAL_CRITERIA)
@@ -73,6 +83,7 @@ async def test_multi_agent_parallel_coverage_and_provenance():
     assert report.verdict.status != "ready"
     assert len(report.findings) == 1
     graph = report.evidence_graph
+    assert graph.adjudication.confirmed == 1 and graph.adjudication.candidates == 1
     node_ids = {node.id for node in graph.nodes}
     assert len(node_ids) == len(graph.nodes)
     assert all(edge.source in node_ids and edge.target in node_ids for edge in graph.edges)
@@ -111,7 +122,7 @@ async def test_direct_route_preserves_expert_provenance_and_uses_only_the_centra
         "contract_inspector": "completed", "risk_inspector": "completed", "reference_inspector": "skipped",
     }
     assert {"logic_inspector", "gap_hunter"} == set(finalizer["groups"][0]["roles"])
-    assert all(effort == ("medium" if stage in {"multi_finalizer", "multi_recheck"} else "low")
+    assert all(effort == ("medium" if stage in {"multi_finalizer", "multi_recheck", "multi_adjudicate"} else "low")
                for stage, effort in chat.efforts)
     assert chat.peak <= 3
     assert len(report.findings) == 1
@@ -138,6 +149,88 @@ class VariantChat(ExpertChat):
 
 def source():
     return extract_specification("fixture.txt", "text/plain", SOURCE.encode())
+
+
+@pytest.mark.asyncio
+async def test_final_adjudication_reclassifies_blocking_conflict_and_preserves_original_severity():
+    second = {"start": 2, "end": 2, "quote": "R-2. Отобразить дату."}
+
+    def variant(data, result):
+        if data["stage"] == "multi_logic_inspector_set":
+            result["findings"] = [{"kind": "conflict", "severity": "medium", "issue": "Несовместимые результаты.",
+                "recommendation": "Согласовать результат.", "evidence": [ANCHOR, second],
+                "requirement_ids": ["R-001", "R-002"], "criteria": ["Согласованность"]}]
+        elif data["stage"] == "multi_gap_hunter_set":
+            result["findings"] = []
+        elif data["stage"] == "multi_adjudicate":
+            result["decisions"] = [{"id": row["id"], "status": "confirmed", "severity": "critical",
+                "rationale": "Обязательные результаты несовместимы; приёмка невозможна.",
+                "evidence": [ANCHOR, second]} for row in data["findings"]]
+
+    report = await review_specification(source(), VariantChat(variant), review_mode="multi_agent_direct")
+    assert report.statistics.critical == 1
+    assert report.verdict.status == "not_ready"
+    assert report.findings[0].severity == "critical"
+    graph = report.evidence_graph
+    assert any(n.kind == "observation" and n.severity == "medium" and n.finding_id == "D-001" for n in graph.nodes)
+    assert any(n.kind == "finding" and n.severity == "critical" and "приёмка невозможна" in n.description for n in graph.nodes)
+
+
+@pytest.mark.asyncio
+async def test_final_adjudication_quarantines_only_source_backed_rejections():
+    def variant(data, result):
+        if data["stage"] == "multi_adjudicate":
+            result["decisions"] = [{"id": row["id"], "status": "unsupported", "severity": None,
+                "rationale": "Требование уже описано в документе.", "evidence": [ANCHOR]} for row in data["findings"]]
+
+    report = await review_specification(source(), VariantChat(variant), review_mode="multi_agent_direct")
+    assert not report.findings
+    assert report.evidence_graph.adjudication.unsupported == 1
+    assert report.verdict.status != "ready"
+    quarantined = [n for n in report.evidence_graph.nodes if n.kind == "observation" and n.finding_id is None]
+    assert {n.role for n in quarantined} == {"logic_inspector", "gap_hunter"}
+    assert "Отклонённые наблюдения" in report.report_markdown
+
+
+@pytest.mark.asyncio
+async def test_uncertain_adjudication_context_is_not_a_primary_finding_citation():
+    extra = {"start": 2, "end": 2, "quote": "R-2. Отобразить дату."}
+
+    def variant(data, result):
+        if data["stage"] == "multi_adjudicate":
+            result["decisions"] = [{"id": row["id"], "status": "uncertain", "severity": None,
+                "rationale": "Контекст не разрешает неопределённость.", "evidence": [extra]} for row in data["findings"]]
+
+    report = await review_specification(source(), VariantChat(variant), review_mode="multi_agent_direct")
+    graph = report.evidence_graph
+    by_id = {node.id: node for node in graph.nodes}
+    citations = [by_id[e.target].evidence.model_dump() for e in graph.edges if e.source == "D-001" and e.kind == "cites"]
+    context = [by_id[e.target].evidence.model_dump() for e in graph.edges if e.source == "D-001" and e.kind == "adjudication_context"]
+    assert citations == [ANCHOR] == [e.model_dump() for e in report.findings[0].evidence]
+    assert context == [extra]
+
+
+@pytest.mark.asyncio
+async def test_invalid_adjudication_evidence_preserves_original_finding_and_does_not_cache(tmp_path):
+    from agent.services.spec_eval_checkpoint import StageCheckpoint, checkpoint_scope
+
+    def variant(data, result):
+        if data["stage"] == "multi_adjudicate":
+            result["decisions"] = [{"id": row["id"], "status": "unsupported", "severity": None,
+                "rationale": "Пропуска нет.", "evidence": [{"start": 1, "end": 1, "quote": "Не существующая цитата"}]}
+                for row in data["findings"]]
+
+    checkpoint = StageCheckpoint(tmp_path, provider_identity="fixture")
+    with checkpoint_scope(checkpoint):
+        report = await review_specification(source(), VariantChat(variant), review_mode="multi_agent_direct")
+    assert len(report.findings) == 1
+    assert report.findings[0].severity == "high"
+    assert report.evidence_graph.adjudication.unreviewed == 1
+    resumed = ExpertChat()
+    with checkpoint_scope(checkpoint):
+        report = await review_specification(source(), resumed, review_mode="multi_agent_direct")
+    assert report.evidence_graph.adjudication.confirmed == 1
+    assert any(value["stage"] == "multi_adjudicate" for value in resumed.stages)
 
 
 @pytest.mark.asyncio
@@ -736,6 +829,107 @@ def test_reducer_does_not_merge_hidden_trailing_issue_or_overload_context():
     assert limited
 
 
+def test_reducer_considers_cross_kind_duplicate_with_identical_source_anchors():
+    from agent.services.spec_multi_agent import Group, Observation, _merge_candidates
+    from agent.services.spec_review import Evidence, Finding
+
+    evidence = [Evidence(**ANCHOR)]
+    left = Finding(kind="missing", severity="high", issue="Договор не определяет срок выписки.",
+                   recommendation="Уточнить срок.", evidence=evidence, requirement_ids=["R-001"])
+    right = left.model_copy(update={"kind": "ambiguous", "issue": "Не определён срок выписки по договору."})
+    assert _merge_candidates([Group([Observation("O-001", "logic_inspector", left)]),
+                              Group([Observation("O-002", "gap_hunter", right)])]) == [("O-001", "O-002")]
+
+
+def test_reducer_considers_same_root_with_overlapping_multi_line_quotes_and_different_scopes():
+    from agent.services.spec_multi_agent import Group, Observation, _merge_candidates
+    from agent.services.spec_review import Evidence, Finding
+
+    first = Evidence(start=1, end=1, quote="Приложение читает данные через сервис.")
+    second = Evidence(start=2, end=2, quote="Операция сохранения данных описана отдельно.")
+    combined = Evidence(start=1, end=2, quote=first.quote + "\n" + second.quote)
+    left = Finding(kind="missing", severity="high", issue="Не описан контракт чтения данных.",
+                   recommendation="Уточнить чтение.", evidence=[first, second], requirement_ids=["R-001"])
+    right = left.model_copy(update={"kind": "ambiguous", "issue": "Контракт чтения данных не определён.",
+                                    "evidence": [combined, second], "requirement_ids": ["R-002"]})
+    assert _merge_candidates([Group([Observation("O-001", "logic_inspector", left)]),
+                              Group([Observation("O-002", "gap_hunter", right)])]) == [("O-001", "O-002")]
+
+
+def test_semantic_candidates_normalize_grouped_numbers_ids_and_absence_synonyms():
+    from agent.services.spec_multi_agent import Group, Observation, _merge_candidates
+    from agent.services.spec_review import Evidence, Finding
+
+    evidence = [Evidence(start=1, end=1, quote="Лимит 50 000 тенге; адрес окружения: —.")]
+    left = Finding(kind="missing", severity="high", issue="R-001: для лимита 50 000 тенге адрес окружения отсутствует.",
+                   recommendation="Указать адрес.", evidence=evidence, requirement_ids=["R-001"])
+    right = left.model_copy(update={"issue": "REQ-25: для лимита 50000 тенге не задан адрес окружения."})
+    assert _merge_candidates([Group([Observation("O-001", "logic_inspector", left)]),
+                              Group([Observation("O-002", "gap_hunter", right)])]) == [("O-001", "O-002")]
+
+
+def test_deterministic_range_root_merges_only_same_proven_defect():
+    from agent.services.spec_multi_agent import Group, Observation, merge_verified_static_roots
+    from agent.services.spec_review import Evidence, Finding
+
+    evidence = Evidence(start=3, end=3, quote="Допустимый диапазон лимита от 12 000 до 8 000 тенге.")
+    code = Finding(kind="untestable", severity="high", issue="Допустимый диапазон пуст: нижняя граница превышает верхнюю.",
+                   recommendation="Согласовать диапазон.", evidence=[evidence], requirement_ids=["R-003"])
+    remarks = ["Верхняя граница 8 000 тенге ниже нижней 12 000 тенге.",
+               "Диапазон лимита задан в обратном порядке, допустимых значений нет.",
+               "Нижняя граница диапазона выше верхней: 12000 и 8000 тенге."]
+    findings = [Group([Observation("O-code-0001", "code_checks", code)])]
+    findings.extend(Group([Observation(f"O-{i:04d}", "logic_inspector", code.model_copy(update={"issue": issue}))])
+                    for i, issue in enumerate(remarks, 1))
+    other = code.model_copy(update={"issue": "Не определена единица измерения диапазона."})
+    findings.append(Group([Observation("O-0004", "gap_hunter", other)]))
+    groups = merge_verified_static_roots(findings)
+    assert sorted(len(group.observations) for group in groups) == [1, 4]
+    assert {obs.id for group in groups for obs in group.observations} == {"O-code-0001", "O-0001", "O-0002", "O-0003", "O-0004"}
+    assert len(next(group for group in groups if len(group.observations) == 4).finding().evidence) == 1
+
+
+def test_literal_empty_field_duplicates_merge_without_hiding_other_issues():
+    from agent.services.spec_multi_agent import Group, Observation, merge_empty_field_roots
+    from agent.services.spec_review import Evidence, Finding
+
+    source = Evidence(start=11, end=11, quote="Dev: /api/read. Prod: —")
+    blank = Finding(kind="missing", severity="medium", issue="Для Prod не задан адрес.",
+                    recommendation="Указать Prod.", evidence=[source], requirement_ids=["R-010"])
+    paraphrase = blank.model_copy(update={"issue": "URL Prod обозначен прочерком. Адрес интеграции отсутствует."})
+    distinct = blank.model_copy(update={"issue": "Метод чтения для Dev не задан."})
+    other_location = blank.model_copy(update={"evidence": [Evidence(start=12, end=12, quote=source.quote)]})
+    groups = merge_empty_field_roots([Group([Observation(f"O-{index}", "logic_inspector", finding)])
+                                      for index, finding in enumerate([blank, paraphrase, distinct, other_location], 1)])
+    assert sorted(len(g.observations) for g in groups) == [1, 1, 2]
+    assert {obs.id for g in groups if len(g.observations) == 2 for obs in g.observations} == {"O-1", "O-2"}
+
+
+def test_consolidation_batches_fit_dense_duplicate_clusters_without_pair_truncation():
+    from agent.services.spec_multi_agent import Group, Observation, consolidation_batches, _merge_candidates, MAX_MERGE_CANDIDATES
+    from agent.services.spec_review import Evidence, Finding
+
+    evidence = Evidence(start=1, end=1, quote="Операция не имеет определённого срока.")
+    groups = [Group([Observation(f"O-{i:04d}", "logic_inspector", Finding(kind="missing", severity="high",
+        issue="Не определён срок операции.", recommendation="Уточнить срок.", evidence=[evidence], requirement_ids=["R-001"]))]) for i in range(12)]
+    batches = consolidation_batches(groups)
+    assert sum(len(batch) for batch in batches) == len(groups)
+    assert all(len(_merge_candidates(batch, limit=None)) <= MAX_MERGE_CANDIDATES for batch in batches)
+
+
+@pytest.mark.asyncio
+async def test_limited_consolidation_is_not_reported_as_provider_failure():
+    def variant(data, result):
+        if data["stage"] == "multi_logic_inspector_set":
+            template = result["findings"][0]
+            result["findings"] = [{**template, "kind": "other", "severity": "low", "issue": f"Различный аспект {n}."} for n in range(35)]
+        elif data["stage"] == "multi_gap_hunter_set":
+            result["findings"] = []
+    report = await review_specification(source(), VariantChat(variant), review_mode="multi_agent_direct")
+    assert len(report.findings) == 35
+    assert report.evidence_graph.finalization_status == "limited"
+
+
 @pytest.mark.asyncio
 async def test_three_medium_pairs_and_finalizer_execute_even_without_findings():
     def variant(data,result):
@@ -860,6 +1054,22 @@ async def test_readiness_identity_coverage_remains_fail_closed(invalid):
                 result["readiness_checklist"].append(dict(result["readiness_checklist"][0]))
     with pytest.raises(ValueError,match="Invalid or duplicate readiness checklist item"):
         await review_specification(source(),VariantChat(variant),review_mode="multi_agent")
+
+
+@pytest.mark.asyncio
+async def test_set_expert_recovers_readiness_identity_on_third_validated_attempt():
+    attempts = 0
+
+    def variant(data, result):
+        nonlocal attempts
+        if data["stage"] == "multi_scenario_builder_set":
+            attempts += 1
+            if attempts < 3:
+                result["readiness_checklist"].append(dict(result["readiness_checklist"][0]))
+
+    report = await review_specification(source(), VariantChat(variant), review_mode="multi_agent_direct")
+    assert attempts == 3
+    assert {row.id for row in report.readiness_checklist} == set(READINESS_CRITERIA)
 
 
 async def test_configured_review_defaults_to_multi_agent_and_old_passport_remains_legacy():

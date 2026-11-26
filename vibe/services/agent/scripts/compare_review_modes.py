@@ -70,12 +70,15 @@ class Trial:
         return f"{self.case.name}-{self.mode}-{self.repetition:02d}"
 
 
-def experiment_matrix(cases: list[BenchmarkCase], repetitions: int) -> list[Trial]:
+def experiment_matrix(cases: list[BenchmarkCase], repetitions: int,
+                      modes: tuple[str, ...] = COMPARISON_MODES) -> list[Trial]:
+    if not modes or len(set(modes)) != len(modes) or not set(modes) <= set(COMPARISON_MODES):
+        raise ValueError("Select at least one distinct review mode")
     trials = []
     for case_index, case in enumerate(cases):
         for repetition in range(1, repetitions + 1):
-            offset = (case_index + repetition - 1) % len(COMPARISON_MODES)
-            order = COMPARISON_MODES[offset:] + COMPARISON_MODES[:offset]
+            offset = (case_index + repetition - 1) % len(modes)
+            order = modes[offset:] + modes[:offset]
             trials.extend(Trial(case, mode, repetition) for mode in order)
     return trials
 
@@ -250,6 +253,9 @@ def trial_settings(env_file: Path, timeout: int) -> dict:
     return {
         "model": config.llm_model, "endpoint_sha256": sha256(config.llm_base_url.encode()).hexdigest(),
         "reasoning_effort": config.spec_review_reasoning_effort,
+        "adjudication_reasoning_effort": config.spec_review_adjudication_reasoning_effort,
+        "fact_profile": config.spec_review_fact_profile,
+        "formal_z3_enabled": config.spec_review_use_z3,
         "analysis_limit_seconds": timeout, "request_timeout_seconds": config.llm_timeout_seconds,
         "request_retries": config.llm_max_retries, "primary_concurrency": config.spec_review_concurrency,
         "task_transient_retry_limit": TRANSIENT_RETRY_LIMIT,
@@ -466,6 +472,7 @@ def run_trial(trial: Trial, output_dir: Path, env_file: Path, timeout: int,
         sys.executable, "-m", "agent.spec_review_cli", "--input", str(trial.case.source),
         "--output", str(report), "--review-mode", trial.mode, "--timeout-seconds", str(timeout),
         "--metrics-output", str(usage), "--env-file", str(env_file), "--checkpoint-dir", str(checkpoints),
+        "--wait-rate-limit",
     ]
     if references:
         command.extend(["--reference-manifest", str(references.manifest),
@@ -523,7 +530,9 @@ def main() -> int:
     parser.add_argument("--stress-source", type=Path, help="An additional, unlabelled input for a structural and timing comparison")
     parser.add_argument("--reference-manifest", type=Path, help="Use and audit the same selected reference originals in every trial")
     parser.add_argument("--official-gold", type=Path, default=root / ".artifacts/organizer-eval/quality-anchor-gold.json", help="Optional retrospective labels; not organizer ground truth")
-    parser.add_argument("--case", action="append", choices=["official", "stress", *sorted(p.name.removesuffix(".gold.json") for p in benchmark.glob("*.gold.json"))])
+    parser.add_argument("--benchmark-dir", type=Path, default=benchmark, help="Directory containing source and .gold.json pairs")
+    parser.add_argument("--case", action="append", help="Case name, official, or stress")
+    parser.add_argument("--mode", action="append", choices=COMPARISON_MODES, help="Review modes to compare (default: all)")
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--timeout-seconds", type=int, default=900)
     parser.add_argument("--dry-run", action="store_true", help="List trials without contacting the provider")
@@ -539,6 +548,7 @@ def main() -> int:
         return 0
     if not 1 <= args.repetitions <= 20 or not 30 <= args.timeout_seconds <= 900:
         parser.error("repetitions must be 1–20 and timeout 30–900 seconds")
+    benchmark = args.benchmark_dir.resolve()
     cases = [BenchmarkCase(p.name.removesuffix(".gold.json"), benchmark / json.loads(p.read_text())["source"], p) for p in sorted(benchmark.glob("*.gold.json"))]
     if args.case is None or "official" in args.case:
         gold = None
@@ -553,10 +563,12 @@ def main() -> int:
         by_name = {case.name: case for case in cases}
         if "stress" in args.case and not args.stress_source:
             parser.error("--case stress requires --stress-source")
+        if any(name not in by_name for name in args.case):
+            parser.error("Unknown selected benchmark case")
         cases = [by_name[name] for name in dict.fromkeys(args.case)]
     if not cases or any(not case.source.is_file() for case in cases):
         parser.error("Selected source file does not exist")
-    trials = experiment_matrix(cases, args.repetitions)
+    trials = experiment_matrix(cases, args.repetitions, tuple(dict.fromkeys(args.mode or COMPARISON_MODES)))
     output = args.output_dir.resolve()
     references = None
     if args.reference_manifest:

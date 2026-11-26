@@ -7,7 +7,8 @@ from langchain_core.messages import AIMessage
 from openai import RateLimitError
 from pydantic import BaseModel
 
-from agent.services.spec_review import invoke_stage, validated_retry
+from agent.config.settings import Settings
+from agent.services.spec_review import configured_review_reasoning, invoke_stage, validated_retry
 from agent.services.spec_eval_checkpoint import (
     StageCheckpoint,
     checkpoint_scope,
@@ -37,7 +38,7 @@ class FakeChat:
         "logic_inspector", "scenario_builder", "gap_hunter", "contract_inspector", "risk_inspector")),
     ("reference", "low"), ("fix", None),
     *((f"multi_pair_{index}", "medium") for index in range(1, 4)),
-    ("multi_finalizer", "medium"), ("multi_recheck", "medium"), ("individual", "low"),
+    ("multi_finalizer", "medium"), ("multi_recheck", "medium"), ("multi_adjudicate", "medium"), ("individual", "low"),
 ])
 async def test_provider_receives_stage_effort(model, stage, expected):
     class Capture:
@@ -57,6 +58,21 @@ async def test_unknown_model_keeps_default_effort():
             return await super().ainvoke(*args, **kwargs)
 
     assert (await invoke_stage(Capture(["ok"]), "multi_finalizer", "prompt", {}, Output)).value == "ok"
+
+
+@pytest.mark.parametrize("override,expected", [("auto", "medium"), ("inherit", "low"), ("low", "low")])
+async def test_adjudication_reasoning_is_independent_of_expert_budget(override, expected):
+    class Capture:
+        model_name = "gpt-6-luna"
+
+        async def ainvoke(self, messages, **kwargs):
+            assert kwargs.get("reasoning_effort") == expected
+            return AIMessage(content='{"value":"ok"}')
+
+    settings = Settings(_env_file=None, spec_review_reasoning_effort="low",
+                        spec_review_adjudication_reasoning_effort=override)
+    with configured_review_reasoning(settings):
+        assert (await invoke_stage(Capture(), "multi_adjudicate", "prompt", {}, Output)).value == "ok"
 
 
 def test_changed_reasoning_effort_cannot_reuse_an_old_checkpoint(tmp_path):

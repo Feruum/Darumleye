@@ -93,6 +93,7 @@ def render_markdown(report: "ReviewReport") -> str:
     from agent.services.spec_review import READINESS_CRITERIA
 
     p, s, v = report.passport, report.statistics, report.verdict
+    profile = getattr(p, "review_profile", None)
     graph = getattr(report, "evidence_graph", None)
     graph_nodes = {node.id: node for node in graph.nodes} if graph else {}
     experts_by_finding: dict[str, set[str]] = {}
@@ -115,6 +116,12 @@ def render_markdown(report: "ReviewReport") -> str:
         f"- Режим: {REVIEW_MODE_LABELS[getattr(p, 'review_mode', 'legacy')]}",
         *([f"- ID запуска: `{p.run_id}`"] if p.run_id else []),
         *([f"- SHA-256 ТЗ: `{p.document_sha256}`"] if p.document_sha256 else []),
+        *([
+            f"- Профиль фактов: {profile.fact_profile or 'не применяется'}",
+            f"- Формальная проверка Z3: {'включена' if profile.z3_enabled else 'выключена'}",
+            f"- Reasoning effort: {profile.reasoning_effort}; арбитраж: {profile.adjudication_reasoning_effort or 'не применяется'}",
+            f"- Параллельность: {profile.concurrency}; Drex: {'включён' if profile.drex_enabled else 'выключен'}; нормативных источников: {profile.references_count}",
+        ] if profile is not None else []),
         "- Метод: статический анализ качества требований на основе характеристик ISO/IEC/IEEE 29148.",
         "",
         "## Сводка",
@@ -126,6 +133,10 @@ def render_markdown(report: "ReviewReport") -> str:
         f"| Требований | {s.requirements} |",
         f"| Нарушений | {s.violations} |",
         f"| Критических нарушений | {s.critical} |",
+        f"| Высокий приоритет | {sum(f.severity == 'high' for f in report.findings)} |",
+        f"| Блокирующих замечаний (Critical + High) | {sum(f.severity in {'critical', 'high'} for f in report.findings)} |",
+        f"| Средний приоритет | {sum(f.severity == 'medium' for f in report.findings)} |",
+        f"| Низкий приоритет | {sum(f.severity == 'low' for f in report.findings)} |",
         f"| Требований без замечаний | {s.passed} |",
         f"| Требований к доработке | {s.needs_revision} |",
         "",
@@ -149,7 +160,7 @@ def render_markdown(report: "ReviewReport") -> str:
         lines.extend([
             "## Независимый экспертный анализ", "",
             f"- Граф доказательств: {len(graph.nodes)} узлов, {len(graph.edges)} связей.",
-            f"- Финализация: {'завершена' if graph.finalization_status == 'completed' else 'детерминированная агрегация (резервный режим)' }.",
+            f"- Финализация: { {'completed': 'завершена', 'limited': 'завершена с ограниченным контекстом объединения (часть похожих замечаний могла остаться отдельно)', 'deterministic_fallback': 'детерминированная агрегация (резервный режим)'}[graph.finalization_status] }.",
             f"- Неразрешённых разногласий: {graph.unresolved_count}.", "",
             "| Эксперт | Статус | Наблюдения |", "|---|---|---:|",
         ])
@@ -157,6 +168,11 @@ def render_markdown(report: "ReviewReport") -> str:
         for expert in graph.experts:
             lines.append(f"| {safe_text(expert.role)} | {status_labels[expert.status]} | {expert.observations} |")
         lines.extend(["", "Полный граф с оригинальными связями и моделируемыми сценариями доступен в JSON и интерактивном отчёте.", ""])
+        if graph.adjudication is not None:
+            a = graph.adjudication
+            lines.extend([f"**Арбитраж:** кандидатов {a.candidates}; подтверждено {a.confirmed}; отклонено {a.unsupported}; неопределённых {a.uncertain}; не перепроверено {a.unreviewed}.", ""])
+            if a.unreviewed or a.uncertain:
+                lines.extend(["Неперепроверенные и неопределённые наблюдения сохранены в отчёте; требуется ручная проверка.", ""])
     lines.extend(
         [
             "## Выделенные требования",
@@ -207,7 +223,7 @@ def render_markdown(report: "ReviewReport") -> str:
         )
     lines.extend(["", "## Выявленные нарушения", ""])
     if not report.findings:
-        lines.extend(["Существенные нарушения не обнаружены в прочитанном тексте.", ""])
+        lines.extend(["Подтверждённые нарушения не обнаружены в прочитанном тексте. Учитывайте ограничения и отклонённые наблюдения, если они указаны ниже.", ""])
     for index, finding in enumerate(report.findings, 1):
         lines.extend(
             [
@@ -221,6 +237,10 @@ def render_markdown(report: "ReviewReport") -> str:
         )
         if roles := experts_by_finding.get(f"D-{index:03d}"):
             lines.append(f"- **Экспертные источники:** {', '.join(sorted(roles))}")
+        graph_finding = graph_nodes.get(f"D-{index:03d}")
+        if graph_finding and graph_finding.description and "\nАрбитраж: " in graph_finding.description:
+            rationale = graph_finding.description.split("\nАрбитраж: ", 1)[1]
+            lines.append(f"- **Итоговая проверка:** {safe_text(rationale)}")
         if finding.evidence:
             lines.extend(
                 f"- **Источник:** {evidence_text(item, report.source)}"
@@ -230,7 +250,38 @@ def render_markdown(report: "ReviewReport") -> str:
             lines.append(
                 "- **Источник:** пробел в документе; соответствующее требование отсутствует."
             )
+        if graph:
+            for edge in graph.edges:
+                if edge.source == f"D-{index:03d}" and edge.kind == "adjudication_context":
+                    anchor = graph_nodes[edge.target].evidence
+                    if anchor:
+                        lines.append(f"- **Контекст неопределённого арбитража (не доказательство дефекта):** {evidence_text(anchor, report.source)}")
         lines.append("")
+    if graph:
+        formal = [node for node in graph.nodes if node.kind == "observation" and node.id.startswith("O-formal-")]
+        if formal:
+            lines.extend(["## Формальная проверка Z3", "",
+                          "Контрпримеры доказаны только в ограниченной модели извлечённых условий. Они не входят в счётчик подтверждённых дефектов без экспертной сверки.", ""])
+            for node in formal:
+                lines.append(f"- **{safe_text(node.id)}**: {safe_text(node.description or '')}")
+                for edge in graph.edges:
+                    if edge.source == node.id and edge.kind == "cites":
+                        anchor = graph_nodes[edge.target].evidence
+                        if anchor:
+                            lines.append(f"  - {evidence_text(anchor, report.source)}")
+            lines.append("")
+        quarantined = [node for node in graph.nodes if node.kind == 'observation' and node.finding_id is None
+                       and (node.description or '').startswith('Отклонено арбитром:')]
+        if quarantined:
+            lines.extend(["## Отклонённые наблюдения", "", "Не включены в число подтверждённых дефектов. Исходные выводы и контрдоказательства сохранены для проверки аналитиком.", ""])
+            for node in quarantined:
+                lines.append(f"- **{safe_text(node.id)} · {safe_text(node.role or '')}**: {safe_text(node.title)}. {safe_text(node.description or '')}")
+                for edge in graph.edges:
+                    if edge.source == node.id and edge.kind == 'cites':
+                        anchor = graph_nodes[edge.target].evidence
+                        if anchor:
+                            lines.append(f"  - {evidence_text(anchor, report.source)}")
+            lines.append("")
     lines.extend(["## Критические дефекты", ""])
     critical = [
         (i, f) for i, f in enumerate(report.findings, 1) if f.severity in {"critical", "high"}

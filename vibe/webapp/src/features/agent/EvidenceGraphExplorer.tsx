@@ -49,7 +49,7 @@ export default function EvidenceGraphExplorer({ graph, report, onShowEvidence, o
     })
     return nodes
   }, [projected, selected, agreements])
-  const edges = useMemo<Edge[]>(() => projected.edges.map(edge => ({ id: JSON.stringify([edge.source, edge.target, edge.kind]), source: edge.source, target: edge.target, type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed }, label: edge.kind === 'disagrees_with' ? evidenceEdgeLabels[edge.kind] : undefined, style: edge.kind === 'disagrees_with' ? { stroke: '#c7515f', strokeDasharray: '6 4', strokeWidth: 2 } : { strokeWidth: 1.25 }, ariaLabel: `${edge.source}: ${evidenceEdgeLabels[edge.kind]} ${edge.target}`, selectable: false })), [projected.edges])
+  const edges = useMemo<Edge[]>(() => projected.edges.map(edge => ({ id: JSON.stringify([edge.source, edge.target, edge.kind]), source: edge.source, target: edge.target, type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed }, label: edge.kind === 'disagrees_with' || edge.kind === 'adjudication_context' ? evidenceEdgeLabels[edge.kind] : undefined, style: edge.kind === 'disagrees_with' ? { stroke: '#c7515f', strokeDasharray: '6 4', strokeWidth: 2 } : edge.kind === 'adjudication_context' ? { strokeDasharray: '3 5', strokeWidth: 1.25 } : { strokeWidth: 1.25 }, ariaLabel: `${edge.source}: ${evidenceEdgeLabels[edge.kind]} ${edge.target}`, selectable: false })), [projected.edges])
 
   function choose(id: string) {
     const group = projected.groups.find(item => item.id === id)
@@ -70,6 +70,8 @@ export default function EvidenceGraphExplorer({ graph, report, onShowEvidence, o
         <Typography as="h3" variant="h4">Граф доказательств</Typography>
         <Typography as="p" variant="caption">{graph.nodes.length} узлов · {graph.edges.length} связей · {graph.unresolved_count} неразрешённых разногласий</Typography>
         {graph.finalization_status === 'deterministic_fallback' && <Typography as="p" variant="caption">Использована программная агрегация замечаний.</Typography>}
+        {graph.finalization_status === 'limited' && <Typography as="p" variant="caption">Объединение замечаний ограничено объёмом контекста; похожие выводы могут отображаться отдельно.</Typography>}
+        {graph.adjudication && <Typography as="p" variant="caption">Арбитраж: подтверждено {graph.adjudication.confirmed}, отклонено {graph.adjudication.unsupported}, требуют проверки {graph.adjudication.uncertain + graph.adjudication.unreviewed} из {graph.adjudication.candidates}.</Typography>}
       </div>
       <div className="sr-graph-agreement" aria-label="Группы экспертных выводов">
         {(Object.entries(findingAgreementLabels) as [FindingAgreement, string][]).map(([value, label]) => <button type="button" key={value} data-agreement={value} aria-pressed={agreement === value} onClick={() => setAgreement(previous => previous === value ? '' : value)}><Typography as="span" variant="caption">{label} · {[...agreements.values()].filter(item => item === value).length}</Typography></button>)}

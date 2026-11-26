@@ -19,7 +19,7 @@ export const evidenceRoleLabels: Record<AgentEvidenceRole, string> = {
   logic_inspector: 'Logic Inspector', scenario_builder: 'Scenario Builder', gap_hunter: 'Gap Hunter', contract_inspector: 'Contract Inspector', risk_inspector: 'Risk Inspector', reference_inspector: 'Reference Inspector', code_checks: 'Программная проверка',
 }
 export const evidenceEdgeLabels: Record<GraphEdge['kind'], string> = {
-  cites: 'Цитирует', about: 'Относится к', contributes_to: 'Вклад в замечание', disagrees_with: 'Разногласие', illustrates: 'Иллюстрирует', asks: 'Требует уточнения', from_reference: 'Из регламента',
+  cites: 'Цитирует', about: 'Относится к', contributes_to: 'Вклад в замечание', disagrees_with: 'Разногласие', illustrates: 'Иллюстрирует', asks: 'Требует уточнения', from_reference: 'Из регламента', adjudication_context: 'Контекст арбитража',
 }
 
 export function evidenceAdjacency(graph: AgentEvidenceGraph) {

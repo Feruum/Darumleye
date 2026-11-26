@@ -1,0 +1,22 @@
+{
+  "source": "invoice-routing.md",
+  "description": "Synthetic invoice workflow; three predeclared injected defects and two semantic negative controls. Not an exhaustive audit.",
+  "defects": [
+    {"id": "INV-G01", "kinds": ["conflict"], "anchors": [{"line": 3, "quote": "со статусом «Проверен» и суммой от 0 до 50 000 тенге включительно утверждается автоматически"}, {"line": 4, "quote": "со статусом «Проверен» и суммой ровно 50 000 тенге отклоняется автоматически"}], "description": "Одинаковый проверенный счёт на 50 000 тенге должен одновременно утверждаться и отклоняться.", "expected_severity": "critical"},
+    {"id": "INV-G02", "kinds": ["conflict", "untestable", "other"], "anchors": [{"line": 5, "quote": "от 12 000 до 8 000 тенге"}], "description": "Допустимый диапазон не содержит ни одного значения.", "expected_severity": "critical"},
+    {"id": "INV-G03", "kinds": ["ambiguous", "untestable", "missing"], "anchors": [{"line": 6, "quote": "в разумный срок"}], "description": "Не задан измеримый срок отправки уведомления.", "expected_severity": "medium"}
+  ],
+  "requirements": [
+    {"id": "IE-01", "source_id": "INV-01", "anchors": [{"line": 3, "quote": "утверждается автоматически"}]},
+    {"id": "IE-02", "source_id": "INV-02", "anchors": [{"line": 4, "quote": "отклоняется автоматически"}]},
+    {"id": "IE-03", "source_id": "INV-03", "anchors": [{"line": 5, "quote": "от 12 000 до 8 000 тенге"}]},
+    {"id": "IE-04", "source_id": "INV-04", "anchors": [{"line": 6, "quote": "уведомление отправляется в разумный срок"}]},
+    {"id": "IE-05", "source_id": "INV-05", "anchors": [{"line": 7, "quote": "100 тенге"}]},
+    {"id": "IE-06", "source_id": "INV-06", "anchors": [{"line": 8, "quote": "10 000 тиын"}]},
+    {"id": "IE-07", "source_id": "INV-07", "anchors": [{"line": 9, "quote": "не отправляются на автоматическое согласование"}]}
+  ],
+  "negative_controls": [
+    {"id": "INV-N01", "anchors": [{"line": 7, "quote": "100 тенге"}, {"line": 8, "quote": "10 000 тиын"}], "description": "Две формы записи эквивалентны; не считать их конфликтом суммы комиссии."},
+    {"id": "INV-N02", "anchors": [{"line": 3, "quote": "со статусом «Проверен»"}, {"line": 9, "quote": "со статусом «Черновик»"}], "description": "Обработка проверенных счетов и исключение черновиков не противоречат друг другу."}
+  ]
+}

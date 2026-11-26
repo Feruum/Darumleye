@@ -10,7 +10,7 @@ Role = Literal[
 ]
 Severity = Literal["critical", "high", "medium", "low"]
 NodeKind = Literal["requirement", "evidence", "observation", "counterexample", "finding", "question", "reference"]
-EdgeKind = Literal["cites", "about", "contributes_to", "disagrees_with", "illustrates", "asks", "from_reference"]
+EdgeKind = Literal["cites", "about", "contributes_to", "disagrees_with", "illustrates", "asks", "from_reference", "adjudication_context"]
 
 
 class GraphModel(BaseModel):
@@ -55,13 +55,28 @@ class ExpertSummary(GraphModel):
     observations: int = Field(ge=0)
 
 
+class AdjudicationSummary(GraphModel):
+    candidates: int = Field(ge=0)
+    confirmed: int = Field(ge=0)
+    unsupported: int = Field(ge=0)
+    uncertain: int = Field(ge=0)
+    unreviewed: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def complete_counts(self):
+        if self.confirmed + self.unsupported + self.uncertain + self.unreviewed != self.candidates:
+            raise ValueError("Invalid adjudication coverage counts")
+        return self
+
+
 class EvidenceGraph(GraphModel):
     schema_version: Literal[1] = 1
     nodes: list[GraphNode]
     edges: list[GraphEdge]
     experts: list[ExpertSummary]
-    finalization_status: Literal["completed", "deterministic_fallback"]
+    finalization_status: Literal["completed", "limited", "deterministic_fallback"]
     unresolved_count: int = Field(ge=0)
+    adjudication: AdjudicationSummary | None = None
 
     @model_validator(mode="after")
     def integrity(self):
@@ -102,6 +117,7 @@ class EvidenceGraph(GraphModel):
             "illustrates": ({"counterexample"}, {"observation", "finding"}),
             "asks": ({"finding"}, {"question"}),
             "from_reference": ({"evidence", "finding"}, {"reference"}),
+            "adjudication_context": ({"finding"}, {"evidence"}),
         }
         for edge in self.edges:
             source, target = by_id[edge.source], by_id[edge.target]
@@ -112,6 +128,8 @@ class EvidenceGraph(GraphModel):
                 raise ValueError("Graph edge contradicts reference identity")
             if edge.kind == "cites" and target.source_id is not None and source.source_id != target.source_id:
                 raise ValueError("Graph citation crosses unrelated reference sources")
+            if edge.kind == "adjudication_context" and (source.source_id is not None or target.source_id is not None):
+                raise ValueError("Adjudication context must reference the primary source")
             if edge.kind == "contributes_to" and source.finding_id != target.id:
                 raise ValueError("Graph edge contradicts observation identity")
             if edge.kind == "asks" and target.finding_id != source.id:

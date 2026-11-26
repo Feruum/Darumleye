@@ -49,6 +49,7 @@ dependencies = [
     "psutil>=5.9.0",
     "redis[hiredis]>=5.2.0",
     "langfuse>=5,<6",
+    "z3-solver>=4.13,<5",
 ]
 
 [tool.pytest.ini_options]

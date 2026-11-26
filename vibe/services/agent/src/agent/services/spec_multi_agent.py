@@ -25,10 +25,10 @@ from agent.services.spec_document import Specification, normalize_quote
 from agent.services.spec_stage_retry import is_transient_provider_error
 from agent.services.spec_eval_checkpoint import individual_split_marker
 from agent.services.spec_evidence_graph import (
-    EvidenceGraph, ExpertSummary, GraphEdge, GraphEvidence, GraphNode, Role,
+    AdjudicationSummary, EvidenceGraph, ExpertSummary, GraphEdge, GraphEvidence, GraphNode, Role,
 )
 from agent.services.spec_review import (
-    COMMON, FINDINGS, INDIVIDUAL_CRITERIA, READINESS_CRITERIA, READINESS_PROMPT,
+    COMMON, FINDINGS, SEVERITY_RUBRIC, INDIVIDUAL_CRITERIA, READINESS_CRITERIA, READINESS_PROMPT,
     REVIEW_CONCURRENCY, SET_CRITERIA, SEVERITY_ORDER, Check, Evidence, Finding, IndividualDraft,
     Passport, ReadinessCheck, Requirement, ReviewPipelineError, ReviewProviderRateLimit, ReviewReport,
     SetCheck, SetDraft, StructuredReview, _correction_reason,
@@ -41,6 +41,15 @@ from agent.services.spec_review import (
 from agent.services.spec_review_context import (
     SetScope, is_large_document, requirement_batches, selected_units, set_scopes,
 )
+from agent.services.spec_review_facts import (
+    Fact, FACT_CONTEXT_INSTRUCTIONS, SCENARIO_WITNESS_INSTRUCTIONS,
+    build_fact_index, select_fact_context,
+)
+from agent.services.spec_review_formal import (
+    ClauseFact, FormalWitness, SEMANTIC_CONTEXT_INSTRUCTIONS,
+    build_clause_index, select_semantic_context, verify_rule_conflicts,
+)
+from agent.services.spec_static_checks import inverted_ranges
 from agent.services.spec_report import render_markdown
 from agent.services.spec_reference_review import (
     ReferenceReview, verify_reference_evidence, reference_review_unavailable,
@@ -104,13 +113,15 @@ PAIRS: tuple[tuple[Role, ...], ...] = (
 )
 ALL_CRITERIA = {*INDIVIDUAL_CRITERIA, *SET_CRITERIA}
 RECHECK_LIMIT = 6
+ADJUDICATION_BATCH_SIZE = 5
+ADJUDICATION_SOURCE_CHARACTERS = 24_000
 MAX_FINALIZER_GROUPS = 32
 MAX_MERGE_CANDIDATES = 24
-MAX_COMPACT_ORIGINS = 8
+MAX_COMPACT_ORIGINS = 12
 MAX_CONSOLIDATION_PAYLOAD_CHARACTERS = 32_000
-COMPACT_ISSUE_CHARACTERS = 500
+COMPACT_ISSUE_CHARACTERS = 800
 COMPACT_QUOTE_CHARACTERS = 600
-COMPACT_QUOTE_COUNT = 3
+COMPACT_QUOTE_COUNT = 16
 COMPACT_REQUIREMENT_COUNT = 24
 MAX_COUNTEREXAMPLES = 24
 MAX_RECHECK_ROWS = 24
@@ -182,6 +193,18 @@ class RecheckDraft(StructuredReview):
     assessments: list[RecheckAssessment] = Field(default_factory=list, max_length=100)
 
 
+class AdjudicationDecision(StructuredReview):
+    id: str = Field(min_length=1, max_length=60)
+    status: Literal["confirmed", "unsupported", "uncertain"]
+    severity: Literal["critical", "high", "medium", "low"] | None = None
+    rationale: str = Field(min_length=1, max_length=1200)
+    evidence: list[Evidence] = Field(default_factory=list, max_length=8)
+
+
+class AdjudicationDraft(StructuredReview):
+    decisions: list[AdjudicationDecision] = Field(max_length=ADJUDICATION_BATCH_SIZE)
+
+
 @dataclass(frozen=True)
 class ExpertTask:
     key: str
@@ -224,6 +247,7 @@ class Observation:
 @dataclass
 class Group:
     observations: list[Observation]
+    adjudication: AdjudicationDecision | None = None
 
     @property
     def id(self) -> str:
@@ -236,6 +260,9 @@ class Group:
         result.criteria = list(dict.fromkeys(c for item in ordered for c in item.finding.criteria))
         result.evidence = list({evidence_key(e): e for item in ordered for e in item.finding.evidence}.values())
         result.clarification_question = next((item.finding.clarification_question for item in ordered if item.finding.clarification_question), None)
+        if self.adjudication and self.adjudication.status == "confirmed" and self.adjudication.severity:
+            result.severity = self.adjudication.severity
+            result.evidence = list({evidence_key(e): e for e in [*result.evidence, *self.adjudication.evidence]}.values())
         return result
 
 
@@ -246,6 +273,7 @@ class PairResult:
     fallback: bool = False
     highlight_ids: list[str] = field(default_factory=list)
     attention_roles: list[Role] = field(default_factory=list)
+    limited: bool = False
 
 
 @dataclass
@@ -305,7 +333,11 @@ class ReviewState(TypedDict, total=False):
     reference_links: list[tuple[str, str]]
     evidence_index: ValidatedEvidenceIndex
     fallback: bool
+    consolidation_limited: bool
     summary_selection: dict[str, list[str]]
+    quarantined: list[Group]
+    quarantined_disputes: list[Dispute]
+    adjudication_summary: AdjudicationSummary
     report: ReviewReport
 
 
@@ -685,14 +717,22 @@ def _signature(finding):
 
 
 def _numeric_negation(text):
+    # Requirement IDs are provenance, not numeric business values. Match
+    # thousands separators before individual digits to keep 50 000 = 50000.
+    # Strip explicit requirement identifiers, but preserve numeric protocol
+    # and standards references such as HTTP-400 and ISO-8601.
+    text = re.sub(r"\b(?!HTTP-|ISO-|RFC-|TCP-|IP-)[A-ZА-ЯЁ]{1,12}[-–]\d{1,6}\b", "", text)
+    text = re.sub(r"\b(?:r|req|fr|nfr|ф|нф)[-–]\d{1,6}\b", "", text.casefold())
+    numbers = [re.sub(r"[ \u00a0\u202f]", "", value).replace(",", ".") for value in
+               re.findall(r"(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:[.,]\d+)?", text)]
+    words = re.findall(
+        r"\b(?:не|нет|без|not|no|never|отсутств\w*|прочерк\w*|невозмож\w*|нельзя|неясн\w*|до|после|перед|через|раньше|позже|"
+        r"больше|меньше|выше|ниже|свыше|before|after|enable|disable|"
+        r"включ[её]н\w*|выключ[её]н\w*|разреш[её]н\w*|запрещ[её]н\w*)\b", text)
+    absence = {"не", "нет", "без", "not", "no", "never", "нельзя"}
     return (
-        re.findall(r"\d+(?:[.,]\d+)*", text),
-        re.findall(
-            r"\b(?:не|нет|без|not|no|never|до|после|перед|через|раньше|позже|"
-            r"больше|меньше|выше|ниже|свыше|before|after|enable|disable|"
-            r"включ[её]н\w*|выключ[её]н\w*|разреш[её]н\w*|запрещ[её]н\w*)\b",
-            text,
-        ),
+        numbers,
+        ["absence" if word in absence or word.startswith(("отсутств", "прочерк", "невозмож", "неясн")) else word for word in words],
     )
 
 
@@ -715,6 +755,103 @@ def merge_exact(groups: list[Group]) -> list[Group]:
     return sorted([*untouched, *exact.values()], key=lambda item: item.id)
 
 
+def merge_verified_static_roots(groups: list[Group]) -> list[Group]:
+    """Collapse repeated descriptions of a proven, source-local inverted range.
+
+    An authoritative code observation, the same literal range and source
+    coordinates, and a claim explicitly about inverted bounds are required.
+    Never collapse other issues merely because they cite the same line.
+    """
+    roots = {}
+    for group in groups:
+        for obs in group.observations:
+            if obs.role != "code_checks" or not obs.finding.issue.startswith("Допустимый диапазон пуст:"):
+                continue
+            for evidence in obs.finding.evidence:
+                fragments = inverted_ranges(evidence.quote)
+                if len(fragments) == 1:
+                    key = (evidence.start, evidence.end, normalize_quote(fragments[0]).casefold())
+                    roots[key] = evidence
+
+    def matches(observation: Observation, root: tuple) -> bool:
+        start, end, fragment = root
+        finding = observation.finding
+        issue = normalize_quote(finding.issue).casefold().replace("ё", "е")
+        if not finding.evidence or not all(start <= item.start <= item.end <= end for item in finding.evidence):
+            return False
+        if not any((literal := normalize_quote(item.quote).casefold()) == fragment or
+                   (min(len(literal), len(fragment)) >= 12 and (literal in fragment or fragment in literal))
+                   for item in finding.evidence):
+            return False
+        if not re.search(r"\b(?:диапазон\w*|границ\w*|интервал\w*)\b", issue):
+            return False
+        if not re.search(r"обратн\w*\s+поряд|пуст\w*|выше|ниже|превыш|от больш\w*\s+значен\w*\s+к меньш|"
+                         r"не содержит ни одного|допустим\w*\s+значен\w*\s+нет|не задает допустим", issue):
+            return False
+        if re.search(r"кроме того|дополнительно|также\s+не\s+определ|единиц\w*\s+не\s+определ", issue):
+            return False
+        issue_numbers = set(_numeric_negation(finding.issue)[0])
+        bounds = set(_numeric_negation(fragment)[0])
+        return issue_numbers <= bounds
+
+    buckets: dict[tuple, list[Group]] = {}
+    untouched = []
+    for group in groups:
+        possible = [root for root in roots if all(matches(obs, root) for obs in group.observations)]
+        if len(possible) == 1:
+            buckets.setdefault(possible[0], []).append(group)
+        else:
+            untouched.append(group)
+    for matched in buckets.values():
+        untouched.append(Group(sorted((obs for group in matched for obs in group.observations), key=lambda obs: obs.id)))
+    return sorted(untouched, key=lambda group: group.id)
+
+
+_EMPTY_FIELD = re.compile(r"\b(?P<label>[a-zа-яё][\w-]{1,39})\s*:\s*(?:[—–-]|TBD|TBC|TODO|\?{3,})(?=\s*(?:[.;|]|$))", re.I)
+
+
+def merge_empty_field_roots(groups: list[Group]) -> list[Group]:
+    """Merge repeated missing-value claims tied to one identical blank field.
+
+    This only deduplicates the claim. The arbiter still determines whether
+    the explicitly blank field is required or intentionally not applicable.
+    """
+    def key_for(observation: Observation) -> tuple | None:
+        finding = observation.finding
+        issue = normalize_quote(finding.issue).casefold().replace("ё", "е")
+        if finding.kind not in {"missing", "ambiguous", "untestable", "other"}:
+            return None
+        if not re.search(r"отсутств\w*|прочерк\w*|не\s+(?:зад\w*|указ\w*|заполн\w*|определ\w*|привед\w*)", issue):
+            return None
+        if re.search(r"кроме того|дополнительно|также\s+не\s+|и\s+не\s+(?:зад|указ|определ)", issue):
+            return None
+        matches = set()
+        for evidence in finding.evidence:
+            if evidence.start != evidence.end:
+                continue
+            blanks = list(_EMPTY_FIELD.finditer(evidence.quote))
+            if len(blanks) != 1:
+                continue
+            label = blanks[0]["label"].casefold().replace("ё", "е")
+            if label in {"url", "поле", "значение", "адрес", "name", "value"}:
+                continue
+            if re.search(rf"(?<!\w){re.escape(label)}(?!\w)", issue):
+                matches.add((evidence.start, label, normalize_quote(evidence.quote).casefold()))
+        return next(iter(matches)) if len(matches) == 1 else None
+
+    buckets: dict[tuple, list[Group]] = {}
+    untouched = []
+    for group in groups:
+        keys = {key_for(obs) for obs in group.observations}
+        if len(keys) == 1 and None not in keys:
+            buckets.setdefault(next(iter(keys)), []).append(group)
+        else:
+            untouched.append(group)
+    for matched in buckets.values():
+        untouched.append(Group(sorted((obs for group in matched for obs in group.observations), key=lambda obs: obs.id)))
+    return sorted(untouched, key=lambda group: group.id)
+
+
 def _common_objects(left: Finding, right: Finding) -> bool:
     """A deliberately conservative lexical signal, never merger authority."""
     if set(left.requirement_ids).intersection(right.requirement_ids):
@@ -731,30 +868,44 @@ def _common_objects(left: Finding, right: Finding) -> bool:
 
 def _compatible_observations(left: Finding, right: Finding) -> bool:
     """Only propose a merge with independently compatible original anchors."""
-    if left.kind != right.kind:
-        return False
     l_evidence = {evidence_key(e) for e in left.evidence}
     r_evidence = {evidence_key(e) for e in right.evidence}
-    common = l_evidence.intersection(r_evidence)
-    if not common:
+    # Different experts can quote a row, one cell, or the surrounding lines.
+    # Treat contained literal excerpts at overlapping coordinates as related
+    # anchors, rather than requiring byte-identical citation boundaries.
+    def related(a, b):
+        if a[1] < b[0] or b[1] < a[0]:
+            return False
+        short, long = sorted((a[2], b[2]), key=len)
+        return a == b or (len(short) >= 12 and short in long)
+    left_shared = {a for a in l_evidence if any(related(a, b) for b in r_evidence)}
+    right_shared = {b for b in r_evidence if any(related(a, b) for a in l_evidence)}
+    if not left_shared or not right_shared:
         return False
     same_scope = set(left.requirement_ids) == set(right.requirement_ids)
     identical_anchors = l_evidence == r_evidence
+    strong_overlap = min(len(left_shared), len(right_shared)) >= 2
+    fully_related = left_shared == l_evidence and right_shared == r_evidence
+    strong_scope = identical_anchors or strong_overlap or fully_related
+    # Different experts can label the same root defect as missing, ambiguous
+    # or conflict. Only propose a cross-kind merge when its literal scope is
+    # strongly shared; semantic adjudication is still mandatory.
+    if left.kind != right.kind and not ((strong_scope or same_scope) and _common_objects(left, right)):
+        return False
     # Different registry IDs may refer to the same exact source conflict.
     # Require the entire anchor set and a shared object, not a lone quote
     # selected from multiple unrelated pieces of evidence.
-    if not same_scope and not (identical_anchors and _common_objects(left, right)):
+    if not same_scope and not (strong_scope and _common_objects(left, right)):
         return False
-    l_num, l_polarity = _numeric_negation(left.issue.casefold())
-    r_num, r_polarity = _numeric_negation(right.issue.casefold())
-    if set(l_polarity) != set(r_polarity):
+    l_num, l_polarity = _numeric_negation(left.issue)
+    r_num, r_polarity = _numeric_negation(right.issue)
+    if set(l_polarity) != set(r_polarity) and not strong_overlap:
         return False
     if set(l_num) != set(r_num):
         # A multi-anchor conflict may describe the same boundary using only a
         # subset of the numbers. Never merge disjoint numeric defects.
         a, b = set(l_num), set(r_num)
-        if not (identical_anchors and len(common) >= 2 and a and b
-                and (a <= b or b <= a)):
+        if not (strong_scope and _common_objects(left, right) and (a <= b or b <= a)):
             return False
     return True
 
@@ -782,25 +933,66 @@ def _complete_merge_context(group: Group) -> bool:
     )
 
 
-def _merge_candidates(groups: list[Group]) -> list[tuple[str, str]]:
+def _merge_candidates(groups: list[Group], *, limit: int | None = MAX_MERGE_CANDIDATES) -> list[tuple[str, str]]:
     """Strong full-anchor candidates first; never rely on the representative."""
-    indexed: dict[tuple, list[Group]] = {}
+    indexed: dict[int, list[Group]] = {}
     for group in groups:
         if _complete_merge_context(group):
             for evidence in group.finding().evidence:
-                indexed.setdefault(evidence_key(evidence), []).append(group)
+                # A source unit is only a retrieval bucket; the stronger
+                # literal-overlap and semantic checks still apply below.
+                for index in range(evidence.start, min(evidence.end, evidence.start + 63) + 1):
+                    indexed.setdefault(index, []).append(group)
     pairs = {}
     for bucket in indexed.values():
         ranked = sorted({item.id: item for item in bucket}.values(),
-                        key=lambda item: (SEVERITY_ORDER[item.finding().severity], item.id))[:MAX_FINALIZER_GROUPS]
-        for left, right in combinations(ranked, 2):
+                        key=lambda item: (SEVERITY_ORDER[item.finding().severity], item.id))
+        if limit is not None:
+            ranked = ranked[:MAX_FINALIZER_GROUPS]
+        # On very dense anchors keep a sliding neighbourhood rather than an
+        # unbounded all-pairs quadratic search. Every group gets candidates.
+        nearby = ((left, right) for pos, left in enumerate(ranked)
+                  for right in ranked[pos + 1:pos + 1 + MAX_FINALIZER_GROUPS])
+        for left, right in nearby:
             pair = tuple(sorted((left.id, right.id)))
             if pair in pairs or not _groups_merge_compatible(left, right):
                 continue
             a, b = left.finding(), right.finding()
             full_anchor = {evidence_key(e) for e in a.evidence} == {evidence_key(e) for e in b.evidence}
             pairs[pair] = (not full_anchor, min(SEVERITY_ORDER[a.severity], SEVERITY_ORDER[b.severity]), pair)
-    return sorted(pairs, key=pairs.__getitem__)[:MAX_MERGE_CANDIDATES]
+    return sorted(pairs, key=pairs.__getitem__)[:limit]
+
+
+def consolidation_batches(groups: list[Group]) -> list[list[Group]]:
+    """Pack related candidates instead of dropping all low-ranked groups.
+
+    Each group appears once; the global reducer can still review cross-batch
+    relations. Keep batches small enough for the compact payload limit.
+    """
+    by_id = {group.id: group for group in groups}
+    pairs = _merge_candidates(groups, limit=None)
+    adjacency: dict[str, list[str]] = {}
+    for left, right in pairs:
+        adjacency.setdefault(left, []).append(right)
+        adjacency.setdefault(right, []).append(left)
+    assigned: set[str] = set()
+    batches = []
+    for start in adjacency:
+        if start in assigned:
+            continue
+        batch, pending = [], [start]
+        # Six groups have at most 15 pairwise relationships, below the
+        # reducer's 24-candidate cap. A dense root cluster must fit as a clique.
+        while pending and len(batch) < 6:
+            id_ = pending.pop(0)
+            if id_ in assigned:
+                continue
+            assigned.add(id_)
+            batch.append(by_id[id_])
+            pending.extend(id2 for id2 in adjacency[id_] if id2 not in assigned)
+        if len(batch) > 1:
+            batches.append(batch)
+    return batches
 
 
 def _disagreement_candidates(groups: list[Group]) -> list[tuple[str, str]]:
@@ -819,7 +1011,7 @@ def _disagreement_candidates(groups: list[Group]) -> list[tuple[str, str]]:
                 continue
             a, b = left.finding(), right.finding()
             if (a.kind != b.kind or
-                    _numeric_negation(a.issue.casefold()) != _numeric_negation(b.issue.casefold())):
+                    _numeric_negation(a.issue) != _numeric_negation(b.issue)):
                 pairs.add(tuple(sorted((left.id, right.id))))
                 if len(pairs) >= MAX_MERGE_CANDIDATES:
                     return sorted(pairs)
@@ -978,7 +1170,10 @@ def selected_summary(groups: list[Group], selection: dict[str,list[str]], questi
     def scoped(key, *, require_question=False):
         chosen = set(selection.get(key,[]))
         candidates = [group for group in groups if not require_question or group_ids[group.id] in questions_by_id]
-        return ([group for group in candidates if group.id in chosen] or candidates)[:3]
+        # Adjudication may have changed severity after the reducer selected its
+        # highlights. Never bury a newly verified blocker behind stale hints.
+        return sorted(candidates, key=lambda group: (group.finding().severity != "critical",
+                      group.id not in chosen, SEVERITY_ORDER[group.finding().severity], group.id))[:3]
     def snippet(text):
         return text if len(text) <= 300 else text[:300].rstrip()+"…"
     highlights = [f"{group_ids[group.id]} — {snippet(group.finding().issue)}" for group in scoped("summary_ids")]
@@ -1055,7 +1250,8 @@ def _find_disputes(groups, requirements, set_checks):
 
 
 def _build_graph(report, groups, disputes, group_conflicts, reference, fallback, results,
-                 reference_links=(), missing_claim_audits=()) -> EvidenceGraph:
+                 reference_links=(), missing_claim_audits=(), quarantined=(), limited=False,
+                 adjudication_summary=None, quarantined_disputes=(), formal_witnesses=()) -> EvidenceGraph:
     nodes: dict[str, GraphNode] = {}
     edges: dict[tuple, GraphEdge] = {}
     evidence_ids = {}
@@ -1089,11 +1285,21 @@ def _build_graph(report, groups, disputes, group_conflicts, reference, fallback,
         finding = report.findings[index - 1]
         id_ = f"D-{index:03d}"
         finding_ids[group.id] = id_
-        node(id_, "finding", finding.issue, severity=finding.severity, finding_id=id_, description=finding.recommendation)
+        decision = group.adjudication
+        description = finding.recommendation
+        if decision:
+            description += "\nАрбитраж: " + ("Подтверждено. " if decision.status == "confirmed" else "Неопределённо. ") + decision.rationale
+        node(id_, "finding", finding.issue, severity=finding.severity, finding_id=id_, description=description)
         for req_id in finding.requirement_ids:
             edge(id_, req_id, "about")
         for e in finding.evidence:
             edge(id_, citation(e), "cites")
+        if decision and decision.status == "uncertain":
+            for e in decision.evidence:
+                # Supporting citations must match the primary finding exactly.
+                # Uncertain adjudication evidence is contextual, not evidence
+                # establishing the finding, so preserve a separate relation.
+                edge(id_, citation(e), "adjudication_context")
         for observation in group.observations:
             f = observation.finding
             counts[observation.role] += 1
@@ -1110,6 +1316,36 @@ def _build_graph(report, groups, disputes, group_conflicts, reference, fallback,
                      finding_id=id_, description=f"{example.scenario}\nВозможные исходы: {example.outcomes}")
                 edge(counter_id, observation.id, "illustrates")
                 edge(counter_id, id_, "illustrates")
+
+    # Source-backed rejections are excluded from the final defect count, not
+    # erased. Keep every expert observation, its literal quotes and the
+    # adjudicator's counterevidence without creating a fictitious finding ID.
+    for group in quarantined:
+        for observation in group.observations:
+            f = observation.finding
+            counts[observation.role] += 1
+            counterevidence = "; ".join(f"{e.start}–{e.end}: «{e.quote}»" for e in group.adjudication.evidence)
+            node(observation.id, "observation", f.issue, role=observation.role, severity=f.severity,
+                 description=f"Отклонено арбитром: {group.adjudication.rationale}\nКонтрдоказательства (координаты): {counterevidence}\n{f.recommendation}")
+            for req_id in f.requirement_ids:
+                edge(observation.id, req_id, "about")
+            for e in [*f.evidence, *group.adjudication.evidence]:
+                edge(observation.id, citation(e), "cites")
+            for index_, example in enumerate(observation.examples, 1):
+                counter_id = f"C-{observation.id[2:]}-{index_:02d}"
+                node(counter_id, "counterexample", "Гипотетический сценарий", role=observation.role,
+                     description=f"{example.scenario}\nВозможные исходы: {example.outcomes}")
+                edge(counter_id, observation.id, "illustrates")
+
+    for index, dispute in enumerate(quarantined_disputes, 1):
+        id_ = f"O-quarantine-dissent-{index:04d}"
+        node(id_, "observation", f"Исходное разногласие по критерию «{dispute.criterion}»", role=dispute.owner,
+             requirement_id=dispute.requirement_id,
+             description=f"Исходная оценка: {dispute.original_status}. {dispute.original_comment}. Связанное наблюдение отклонено арбитром.")
+        edge(id_, dispute.group_id, "about")
+        counts[dispute.owner] += 1
+        if dispute.requirement_id:
+            edge(id_, dispute.requirement_id, "about")
 
     # Preserve dissent without treating a rubric owner having passed a check as
     # an actual defect. Dissent is a separate observation with direct provenance.
@@ -1186,6 +1422,19 @@ def _build_graph(report, groups, disputes, group_conflicts, reference, fallback,
              description="Исходный фрагмент требует сверки с реестром; это не подтверждённое нарушение.")
         edge(id_, citation(gap), "cites")
 
+    for index, witness in enumerate(formal_witnesses, 1):
+        id_ = f"O-formal-{index:04d}"
+        counts["code_checks"] += 1
+        node(id_, "observation", "Формальный контрпример Z3", role="code_checks",
+             description=(f"Сущность: {witness.entity}. Вход: {json.dumps(witness.inputs, ensure_ascii=False)}. "
+                          f"Несовместимые исходы модели: {witness.left_outcome} / {witness.right_outcome}. "
+                          "Доказано пересечение условий и несовместимость исходов в ограниченной формальной модели; "
+                          "смысл исходных правил и исключения требуют экспертной сверки."))
+        for req_id in witness.requirement_ids:
+            edge(id_, req_id, "about")
+        for original in witness.evidence:
+            edge(id_, citation(Evidence.model_validate(original)), "cites")
+
     for question in report.clarification_questions:
         node(question.id, "question", question.question, question_id=question.id, finding_id=question.finding_id,
              severity=question.priority)
@@ -1204,7 +1453,8 @@ def _build_graph(report, groups, disputes, group_conflicts, reference, fallback,
     ])
     return EvidenceGraph(
         nodes=list(nodes.values()), edges=list(edges.values()), experts=experts,
-        finalization_status="deterministic_fallback" if fallback else "completed",
+        finalization_status="deterministic_fallback" if fallback else "limited" if limited else "completed",
+        adjudication=adjudication_summary,
         unresolved_count=(sum(d.assessment is None or d.assessment.status != "agrees" for d in [*disputes, *group_conflicts])
                           + sum(audit.assessment is not None and audit.assessment.status != "agrees"
                                 for audit in missing_claim_audits)),
@@ -1216,11 +1466,15 @@ async def review_multi_agent(
     verifier=None, references=None, reference_retriever_factory=None,
     reference_verifier=None, concurrency: int = REVIEW_CONCURRENCY,
     review_mode: Literal["multi_agent", "multi_agent_direct"] = "multi_agent",
+    fact_profile: Literal["off", "numeric", "full"] = "full",
+    use_z3: bool = True,
 ) -> ReviewReport:
     from agent.utils.review_telemetry import review_stage
 
     if review_mode not in {"multi_agent", "multi_agent_direct"}:
         raise ValueError("Unknown multi-agent review mode")
+    if fact_profile not in {"off", "numeric", "full"}:
+        raise ValueError("Unknown fact profile")
     paired = review_mode == "multi_agent"
     _check_assignments()
     run_at = datetime.now(UTC).isoformat()
@@ -1234,6 +1488,9 @@ async def review_multi_agent(
     # Limit active provider attempts, so an expert in backoff leaves its slot
     # available to other LangGraph tasks and validation-split children.
     gate = asyncio.Semaphore(concurrency)
+    fact_index: tuple[Fact, ...] = ()
+    clause_index: tuple[ClauseFact, ...] = ()
+    formal_witnesses: tuple[FormalWitness, ...] = ()
 
     async def extract(_state):
         with review_stage("requirement-extraction"):
@@ -1244,7 +1501,14 @@ async def review_multi_agent(
         return {"requirements": requirements}
 
     async def prepare(state):
+        nonlocal fact_index, clause_index, formal_witnesses
         requirements = state["requirements"]
+        if fact_profile != "off":
+            fact_index = build_fact_index(specification, requirements)
+        if fact_profile == "full":
+            clause_index = build_clause_index(specification, requirements)
+            if use_z3:
+                formal_witnesses = verify_rule_conflicts(specification, requirements, fact_index)
         large = is_large_review(specification, requirements)
         scopes = (
             [window for scope in set_scopes(specification, requirements)
@@ -1306,6 +1570,20 @@ async def review_multi_agent(
             "allowed_finding_criteria": sorted(ALL_CRITERIA),
         }
         instructions = EXPERT_COMMON + f"\nROLE: {task.role}. {expert.strategy}\n"
+        allowed_fact_ids = {requirement.id for requirement in task.requirements}
+        facts = select_fact_context(fact_index, allowed_fact_ids,
+                                    max_chars=1600 if task.phase == "individual" else 4200)
+        if facts["facts"]:
+            payload["fact_context"] = facts
+            instructions += FACT_CONTEXT_INSTRUCTIONS
+        if fact_profile == "full":
+            semantic_context = select_semantic_context(clause_index, formal_witnesses, allowed_fact_ids,
+                max_chars=1600 if task.phase == "individual" else 3800)
+            if semantic_context["clauses"] or semantic_context["formal_witnesses"]:
+                payload["semantic_context"] = semantic_context
+                instructions += SEMANTIC_CONTEXT_INSTRUCTIONS
+        if task.role == "scenario_builder" and fact_profile != "off":
+            instructions += SCENARIO_WITNESS_INSTRUCTIONS
         if large:
             instructions += "The supplied context is bounded. Do not infer absence or applicability solely from this sample. Units marked excerpt are literal windows retaining their original unit index; excerpt offsets are contextual only. Use uncertain where scope is insufficient. "
         if task.phase == "individual":
@@ -1379,8 +1657,17 @@ unassigned capabilities. Use uncertainty if context is insufficient.
 """
             if checklist_ids:
                 instructions += READINESS_PROMPT
+                instructions += ("\nThe readiness_checklist IDs owned by this expert are exactly " +
+                                 json.dumps(checklist_ids, ensure_ascii=False) +
+                                 ". Copy these ID strings verbatim, never translate them, repeat them, or return IDs from another expert. "
+                                 "Do not use requirement IDs, criterion labels, finding IDs or scenario labels as checklist IDs.")
                 if scope:
                     instructions += " In scoped review, return only criteria supported by local evidence; no global absence inferred from a sample."
+                else:
+                    instructions += (f" Return exactly {len(checklist_ids)} readiness_checklist rows, one per owned ID, "
+                                     "even if the assessment is uncertain. If evidence is insufficient, return that ID with both status and availability uncertain, not an omitted row.")
+            else:
+                instructions += " This expert owns no readiness checklist IDs in this scope. Return readiness_checklist=[] exactly."
 
             async def attempt(prompt):
                 draft = await invoke_stage(llm, stage, prompt, payload, ExpertSetDraft)
@@ -1463,7 +1750,8 @@ unassigned capabilities. Use uncertainty if context is insufficient.
                                          payload, ExpertIndividualDraft) if can_split else None
         if marker is None or not marker.is_file():
             try:
-                return await validated_retry(stage, instructions, attempt, gate=gate, deadline=expert_deadline)
+                return await validated_retry(stage, instructions, attempt, gate=gate, deadline=expert_deadline,
+                    additional_correction_reason="Invalid or duplicate readiness checklist item" if task.phase == "set" else None)
             except ValueError as error:
                 if not can_split or _correction_reason(error) is None:
                     raise
@@ -1524,13 +1812,20 @@ unassigned capabilities. Use uncertainty if context is insufficient.
         disagreement_candidates = payload["disagreement_candidates"]
         cap = optional_deadline if stage_deadline is None else min(optional_deadline, stage_deadline)
         if loop.time() >= cap:
-            return groups, [], {}, True
+            return groups, [], {}, True, limited
         prompt = COMMON + """
 Consolidate compact verified observation groups. Do not introduce a new
 finding, rewrite severity, discard, or infer missing evidence. Only merge
 listed candidate ID pairs when they represent the exact same root defect;
 shared citation alone is NOT enough. Evidence excerpts may be shortened and
 only a bounded subset of groups is shown; do not extrapolate to unseen groups.
+Different wording, expert roles, severity or defect categories do not make
+the same problem different. For each shared repair decision, group every
+candidate that describes that same missing obligation or incompatible result.
+For example, naming the larger and smaller bounds in reverse sentence order
+does not create a second inverted-range defect. Preserve independently
+actionable problems even when they share a citation. Do not merge a missing
+operation with a distinct incorrect method or another separately fixable field.
 Otherwise keep separate. Each merged group must be a list of existing IDs,
 pairwise present in candidate_pairs and not used twice. For the supplied
 disagreement_candidates return a pair only if two groups give genuinely
@@ -1543,6 +1838,9 @@ recommendations), and question_ids (only cards with question_available=true).
 attention_roles may select displayed role IDs where the coverage counts warrant
 manual attention, without changing any verified assessment. Order and severity
 of findings, verdict and clarification questions remain software-controlled.
+Return at most 24 merge groups and 24 disagreement pairs; each summary_ids,
+priority_ids and question_ids array may contain at most 5 unique IDs. Return
+at most 7 unique attention_roles. Never place all groups in a summary array.
 Return {"merges":[["O-...","O-..."]],"disagreements":[["O-...","O-..."]],
 "summary_ids":[],"priority_ids":[],"question_ids":[],"attention_roles":[]}.
 """
@@ -1579,11 +1877,11 @@ Return {"merges":[["O-...","O-..."]],"disagreements":[["O-...","O-..."]],
         try:
             async with asyncio.timeout_at(cap):
                 async with gate:
-                    merged, conflicts, selection = await validated_retry(stage, prompt, attempt, allow_correction=False, allow_transient_retry=False)
-            return merged, conflicts, selection, limited
+                    merged, conflicts, selection = await validated_retry(stage, prompt, attempt, allow_correction=True, allow_transient_retry=False)
+            return merged, conflicts, selection, False, limited
         except (ValueError, RuntimeError, TimeoutError) as error:
             logger.warning("spec_multi_consolidation_fallback", stage=stage, error_type=type(error).__name__)
-            return groups, [], {}, True
+            return groups, [], {}, True, limited
 
     async def join_experts(state):
         failures = sorted(state.get("failed_tasks", []), key=lambda failure: failure.key)
@@ -1652,7 +1950,7 @@ Return {"merges":[["O-...","O-..."]],"disagreements":[["O-...","O-..."]],
         groups = merge_exact([Group([obs]) for obs in originals])
         coverage_cards = state["coverage_cards"]
         with review_stage(("pair-logic-scenario", "pair-gap-contract", "pair-risk-reference")[index]) as span:
-            groups, _, selection, reducer_fallback = await consolidate(
+            groups, _, selection, reducer_fallback, limited = await consolidate(
                 groups, stage=f"multi_pair_{index+1}",
                 metadata={"coverage_cards":coverage_cards,"reference_cards":state["reference_cards"],
                           "reference_cards_are_separate_from_core":True},
@@ -1663,13 +1961,14 @@ Return {"merges":[["O-...","O-..."]],"disagreements":[["O-...","O-..."]],
             span.ids("observation_ids", [item.id for item in originals])
         highlights = selection.get("summary_ids") or [group.id for group in sorted(
             groups,key=lambda item:(SEVERITY_ORDER[item.finding().severity],item.id))[:3]]
-        return {"pairs": [PairResult(index, groups, reducer_fallback, highlights, selection.get("attention_roles", []))]}
+        return {"pairs": [PairResult(index, groups, reducer_fallback, highlights, selection.get("attention_roles", []), limited)]}
 
     async def validate_global(state):
         with review_stage("global-evidence-validator") as span:
             requirements = state["requirements"]
             results = state["results"]
             fallback = state["fallback"]
+            limited = False
             if paired:
                 pairs = sorted(state["pairs"], key=lambda pair: pair.index)
                 if [pair.index for pair in pairs] != list(range(len(PAIRS))):
@@ -1679,6 +1978,7 @@ Return {"merges":[["O-...","O-..."]],"disagreements":[["O-...","O-..."]],
                         raise ReviewPipelineError("Pair validator mixed unrelated expert results")
                 expert_groups = [group for pair in pairs for group in pair.groups]
                 fallback |= any(pair.fallback for pair in pairs)
+                limited |= any(pair.limited for pair in pairs)
             else:
                 expert_groups = [Group([obs]) for obs in state["observations"]]
             code_findings = review_code_checks(specification, requirements)
@@ -1691,7 +1991,8 @@ Return {"merges":[["O-...","O-..."]],"disagreements":[["O-...","O-..."]],
                                                  recommendation="Сформулировать и зафиксировать требования.", evidence=[first_readable_evidence(specification)],
                                                  requirement_ids=[], criteria=[SET_CRITERIA[0]]))
             code = [Observation(f"O-code-{index:04d}", "code_checks", item) for index, item in enumerate(code_findings, 1)]
-            groups = merge_exact([*expert_groups, *(Group([item]) for item in code)])
+            groups = merge_empty_field_roots(merge_verified_static_roots(
+                merge_exact([*expert_groups, *(Group([item]) for item in code)])))
             original_ids = {item.id for item in state["observations"]}
             retained = [obs.id for group in groups for obs in group.observations]
             if set(retained) != original_ids.union(item.id for item in code) or len(retained) != len(set(retained)):
@@ -1714,7 +2015,7 @@ Return {"merges":[["O-...","O-..."]],"disagreements":[["O-...","O-..."]],
             gaps = list({evidence_key(item): item for item in candidates}.values())
             return {"groups": groups, "evidence_index": evidence_index,
                     "set_checks": set_checks, "readiness": readiness,
-                    "extraction_gaps": gaps, "fallback": fallback}
+                    "extraction_gaps": gaps, "fallback": fallback, "consolidation_limited": limited}
 
     async def finalize(state):
         with review_stage("finalizer"):
@@ -1733,15 +2034,155 @@ Return {"merges":[["O-...","O-..."]],"disagreements":[["O-...","O-..."]],
                 preferred_ids = tuple(dict.fromkeys(id_ for pair in summaries for id_ in pair["highlight_ids"]))
             else:
                 metadata.update(reference_cards=state["reference_cards"], reference_cards_are_separate_from_core=True)
-            groups, conflicts, selection, fallback = await consolidate(
-                list(index.groups), stage="multi_finalizer", global_stage=True,
-                metadata=metadata, preferred_ids=preferred_ids,
+            groups = list(index.groups)
+            fallback, limited = state["fallback"], state.get("consolidation_limited", False)
+            now = loop.time()
+            remaining = max(0.0, optional_deadline - now)
+            # On large reports first consolidate source-related clusters,
+            # including lower-ranked groups otherwise excluded by the global cap.
+            candidates = _merge_candidates(groups, limit=MAX_MERGE_CANDIDATES + 1)
+            degrees = Counter(id_ for pair in candidates for id_ in pair)
+            if (len(groups) > MAX_FINALIZER_GROUPS or len(candidates) > MAX_MERGE_CANDIDATES
+                    or max(degrees.values(), default=0) >= 3):
+                batches = consolidation_batches(groups)
+                if batches:
+                    results = await asyncio.gather(*(consolidate(batch, stage="multi_finalizer",
+                        stage_deadline=now + remaining * .3) for batch in batches))
+                    consumed = {group.id for batch in batches for group in batch}
+                    groups = [group for group in groups if group.id not in consumed]
+                    for merged, _, _, batch_failed, batch_limited in results:
+                        groups.extend(merged)
+                        fallback |= batch_failed
+                        limited |= batch_limited
+                    # Pre-pass changed group IDs; remap summary hints, never
+                    # manufacture a selection for a removed group.
+                    remapped = {obs.id: group.id for group in groups for obs in group.observations}
+                    preferred_ids = tuple(dict.fromkeys(remapped[id_] for id_ in preferred_ids if id_ in remapped))
+                    for summary in metadata.get("paired_summaries", []):
+                        summary["highlight_ids"] = list(dict.fromkeys(remapped[id_] for id_ in summary["highlight_ids"] if id_ in remapped))
+            groups, conflicts, selection, failed, global_limited = await consolidate(
+                groups, stage="multi_finalizer", global_stage=True,
+                metadata=metadata, preferred_ids=preferred_ids, stage_deadline=now + remaining * .55,
             )
+            fallback |= failed
+            limited |= global_limited
             validate_reduced_index(index, groups)
         groups.sort(key=lambda group: (SEVERITY_ORDER[group.finding().severity], group.id))
         disputes = _find_disputes(groups, state["requirements"], state["set_checks"])
-        return {"groups": groups, "disputes": disputes, "group_conflicts": conflicts, "fallback": state["fallback"] or fallback,
+        return {"groups": groups, "disputes": disputes, "group_conflicts": conflicts, "fallback": fallback,
+                "consolidation_limited": limited,
                 "summary_selection":selection}
+
+    async def adjudicate(state):
+        """A bounded source review after consolidation, before the verdict.
+
+        The adjudicator may revise severity, or reject only a claim with
+        literal counterevidence. Invalid or incomplete decisions never erase
+        observations. The original expert ratings remain immutable.
+        """
+        groups = state["groups"]
+        candidates = [group for group in groups if (
+            group.finding().severity in {"critical", "high"} or
+            group.finding().kind in {"conflict", "missing", "untestable"}
+        ) and not any(obs.role == "code_checks" for obs in group.observations)]
+        candidates.sort(key=lambda group: (SEVERITY_ORDER[group.finding().severity],
+                                          group.finding().kind != "conflict", group.id))
+        full_source = [{"index": index, "text": unit} for index, unit in enumerate(specification.units, 1)
+                       if unit.strip() and index not in specification.unreadable_units]
+        readable_fits = sum(len(unit["text"]) for unit in full_source) <= ADJUDICATION_SOURCE_CHARACTERS
+        complete = readable_fits and not specification.unreadable_units and not specification.unreadable_pages
+        instructions = COMMON + SEVERITY_RUBRIC + """
+You are the final independent evidence adjudicator, not another defect generator.
+Assess every supplied finding ID exactly once. Check the original source for
+explicit exceptions, priority rules, different scopes and already stated
+equivalent requirements. A genuine conflict has incompatible mandatory outcomes
+under the same conditions; a hypothetical scenario alone is not proof.
+Use confirmed with a calibrated severity and exact supporting quotations.
+Use unsupported ONLY when exact source counterevidence refutes the claim; quote
+that counterevidence. Do not reject based on silence, incomplete context, or a
+mere opinion. Use uncertain and severity=null when evidence is insufficient.
+Explain in Russian the concrete blocking consequence or why it is not blocking.
+For a confirmed critical conflict cite both incompatible source rules. Do not
+invent, combine, or rewrite findings, requirements or business policies.
+Return {"decisions":[{"id":"supplied ID","status":"confirmed|unsupported|uncertain",
+"severity":"critical|high|medium|low or null","rationale":"Russian explanation",
+"evidence":[{"start":1,"end":1,"quote":"exact excerpt"}]}]}.
+For unsupported or uncertain use JSON null for severity.
+"""
+        # Reserve a portion of optional time for the existing criterion rechecks.
+        now = loop.time()
+        cap = now + max(0.0, optional_deadline - now) * .7
+
+        async def batch_review(batch):
+            rows = [{"id": group.id, **group.finding().model_dump()} for group in batch]
+            payload = {"findings": rows, "source_complete": complete}
+            if readable_fits:
+                payload["source_units"] = full_source
+            else:
+                payload["source_contexts"] = {group.id: recheck_source_context(
+                    specification, group.finding(), state["requirements"]) for group in batch}
+            by_id = {group.id: group for group in batch}
+            async def attempt(prompt):
+                draft = await invoke_stage(llm, "multi_adjudicate", prompt, payload, AdjudicationDraft)
+                expected = {group.id for group in batch}
+                if {row.id for row in draft.decisions} != expected or len(draft.decisions) != len(expected):
+                    raise ValueError("Invalid adjudication coverage")
+                # Validate before accepting the provider checkpoint. A bad
+                # quote or invalid status must not become a reusable decision.
+                for row in draft.decisions:
+                    group = by_id[row.id]
+                    for evidence in row.evidence:
+                        verify_evidence(specification, evidence)
+                    if row.status == "confirmed":
+                        if not row.severity or not row.evidence:
+                            raise ValueError("Confirmed assessment requires severity and evidence")
+                        if (row.severity == "critical" and any(obs.finding.kind == "conflict" for obs in group.observations)
+                                and len({normalize_quote(e.quote) for e in row.evidence}) < 2):
+                            raise ValueError("Critical conflict requires both source rules")
+                    elif row.severity is not None or (row.status == "unsupported" and not row.evidence):
+                        raise ValueError("Rejected assessment requires source counterevidence and no severity")
+                return draft
+            try:
+                async with asyncio.timeout_at(cap):
+                    async with gate:
+                        draft = await validated_retry("multi_adjudicate", instructions, attempt,
+                            allow_correction=True, allow_transient_retry=False)
+            except (ValueError, RuntimeError, TimeoutError) as error:
+                logger.warning("spec_adjudication_unavailable", error_type=type(error).__name__)
+                return
+            for row in draft.decisions:
+                by_id[row.id].adjudication = row
+
+        if candidates and loop.time() < cap:
+            await asyncio.gather(*(batch_review(candidates[index:index + ADJUDICATION_BATCH_SIZE])
+                                   for index in range(0, len(candidates), ADJUDICATION_BATCH_SIZE)))
+        active = [group for group in groups if not group.adjudication or group.adjudication.status != "unsupported"]
+        quarantined = [group for group in groups if group.adjudication and group.adjudication.status == "unsupported"]
+        active_ids = {group.id for group in active}
+        # A removed finding must not leave an orphaned FAIL or an unjustified
+        # PASS. Preserve uncertainty until an analyst resolves the difference.
+        active_findings = [group.finding() for group in active]
+        for group in quarantined:
+            f = group.finding()
+            for req in state["requirements"]:
+                if req.id in f.requirement_ids:
+                    for check in req.checks:
+                        if check.criterion in f.criteria and not any(req.id in af.requirement_ids and check.criterion in af.criteria for af in active_findings):
+                            check.comment = (f"Наблюдение отклонено арбитром; требуется решение аналитика. Исходная оценка: {check.status}. {check.comment}")[:1500]
+                            check.status = "uncertain"
+            for check in state["set_checks"]:
+                if check.criterion in f.criteria and not any(check.criterion in af.criteria for af in active_findings):
+                    check.comment = (f"Наблюдение отклонено арбитром; требуется решение аналитика. Исходная оценка: {check.status}. {check.comment}")[:1500]
+                    check.status = "uncertain"
+        active.sort(key=lambda group: (SEVERITY_ORDER[group.finding().severity], group.id))
+        counts = Counter(group.adjudication.status if group.adjudication else "unreviewed" for group in candidates)
+        summary = AdjudicationSummary(candidates=len(candidates), confirmed=counts["confirmed"],
+            unsupported=counts["unsupported"], uncertain=counts["uncertain"], unreviewed=counts["unreviewed"])
+        return {"groups": active, "quarantined": quarantined,
+                "adjudication_summary": summary,
+                "quarantined_disputes": [d for d in state["disputes"] if d.group_id not in active_ids],
+                "disputes": [d for d in state["disputes"] if d.group_id in active_ids],
+                "group_conflicts": [c for c in state["group_conflicts"] if c.left_id in active_ids and c.right_id in active_ids]}
 
     async def recheck(state):
         disputes = state["disputes"]
@@ -1888,6 +2329,10 @@ severity, invent evidence, or delete observations.
         with review_stage("verdict"):
             statistics, result = summarize(requirements, findings, set_checks,
                 specification.unreadable_pages, specification.unreadable_units, gaps, readiness)
+            if state.get("quarantined") and result.status == "ready":
+                result.status = "needs_revision"
+                result.reason = "Требуется ручное подтверждение отклонённых наблюдений перед началом разработки."
+                result.priorities = ["Проверить отклонённые наблюдения и их доказательства."]
             questions = clarification_questions(findings, readiness)
             report = ReviewReport(
                 filename=specification.filename, source=specification.source, unreadable_pages=specification.unreadable_pages,
@@ -1905,6 +2350,11 @@ severity, invent evidence, or delete observations.
             report.evidence_graph = _build_graph(
                 report, groups, state["disputes"], state["group_conflicts"], reference,
                 state["fallback"], state["results"], state["reference_links"], state["missing_claim_audits"],
+                state.get("quarantined", []),
+                state.get("consolidation_limited", False),
+                state.get("adjudication_summary"),
+                state.get("quarantined_disputes", []),
+                formal_witnesses=formal_witnesses,
             )
             span.count("nodes", len(report.evidence_graph.nodes))
             span.count("edges", len(report.evidence_graph.edges))
@@ -1919,6 +2369,7 @@ severity, invent evidence, or delete observations.
     builder.add_node("expert_join", join_experts)
     builder.add_node("global_validator", validate_global)
     builder.add_node("finalizer", finalize)
+    builder.add_node("adjudicator", adjudicate)
     builder.add_node("targeted_recheck", recheck)
     builder.add_node("verdict", verdict)
     builder.add_edge(START, "extract")
@@ -1932,7 +2383,8 @@ severity, invent evidence, or delete observations.
     else:
         builder.add_edge("expert_join", "global_validator")
     builder.add_edge("global_validator", "finalizer")
-    builder.add_edge("finalizer", "targeted_recheck")
+    builder.add_edge("finalizer", "adjudicator")
+    builder.add_edge("adjudicator", "targeted_recheck")
     builder.add_edge("targeted_recheck", "verdict")
     builder.add_edge("verdict", END)
     async with asyncio.timeout_at(deadline):

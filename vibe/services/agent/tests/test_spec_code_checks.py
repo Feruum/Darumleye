@@ -148,6 +148,35 @@ def test_code_checks_do_not_treat_id_fragments_as_requirement_text():
     assert review.review_code_checks(source, requirements) == []
 
 
+def test_static_range_and_unfilled_value_checks_are_generic_and_unit_aware():
+    lines = [
+        "REQ-1. Допустимый диапазон суммы: от 100 тенге до 5 000 тиын.",
+        "REQ-2. Допустимый диапазон суммы: от 50 тенге до 5 000 тиын.",
+        "REQ-3. Время ожидания: TBD.",
+        "REQ-4. Комментарий не должен содержать TBD.",
+        "REQ-5. Отображать шкалу от 100 до 0.",
+        "REQ-6. Допустимый диапазон массы: от 5 кг до 10 м.",
+        "REQ-7. Допустимый диапазон дат от 31.01 до 01.02.",
+        "REQ-8. Допустимый диапазон дат от 01.02.2026 до 31.01.2027.",
+        "REQ-9. Допустимый диапазон времени суток от 23:00 до 06:00.",
+        "REQ-10. Допустимый диапазон времени приёма операций от 23 до 2 часов следующего дня.",
+        "REQ-11. Допустимый диапазон углов от 350 до 10 градусов по часовой стрелке.",
+        "REQ-12. Если карта заблокирована, допустимый диапазон суммы от 1 до 0 тенге (никакие операции не разрешены).",
+        "REQ-13. Отображать диапазон шкалы от 100 до 0.",
+    ]
+    spec = Specification("requirements.md", "md", lines)
+    requirements = [requirement(i, line, line, i, source_id=f"REQ-{i}") for i, line in enumerate(lines, 1)]
+    findings = review.review_code_checks(spec, requirements)
+    assert len(findings) == 2
+    assert {tuple(f.requirement_ids) for f in findings} == {("R-001",), ("R-003",)}
+    # An explicitly admissible but empty domain has no possible conforming
+    # value even after normalizing units; it blocks implementation/acceptance.
+    assert next(f for f in findings if f.requirement_ids == ["R-001"]).severity == "critical"
+    for finding in findings:
+        for evidence in finding.evidence:
+            review.verify_evidence(spec, evidence)
+
+
 async def test_code_findings_reach_set_stage_and_prevent_false_ready_verdict(
     monkeypatch,
 ):

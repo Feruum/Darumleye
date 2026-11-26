@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     spec_review_large_timeout_seconds: int = Field(default=900, ge=30, le=900)
     spec_review_concurrency: int = Field(default=REVIEW_CONCURRENCY, ge=1)
     spec_review_reasoning_effort: Literal["auto", "low", "medium"] = "auto"
+    spec_review_adjudication_reasoning_effort: Literal["auto", "inherit", "low", "medium"] = "auto"
+    spec_review_fact_profile: Literal["off", "numeric", "full"] = "full"
+    spec_review_use_z3: bool = True
     spec_review_use_nace: bool = False
     max_history_messages: int = 15
 
@@ -128,10 +131,14 @@ class Settings(BaseSettings):
 
     @property
     def spec_review_checkpoint_provider(self) -> str:
-        if self.spec_review_reasoning_effort == "auto":
-            return self.llm_base_url
+        identity = self.llm_base_url
         # Isolate run identities, validated stages and split hints from earlier profiles.
-        return f"{self.llm_base_url}|review-effort={self.spec_review_reasoning_effort}"
+        if self.spec_review_reasoning_effort != "auto":
+            identity += f"|review-effort={self.spec_review_reasoning_effort}"
+        if self.spec_review_adjudication_reasoning_effort != "auto":
+            identity += f"|adjudication-effort={self.spec_review_adjudication_reasoning_effort}"
+        identity += f"|fact-profile={self.spec_review_fact_profile}|z3={self.spec_review_use_z3}"
+        return identity
 
     def get_available_models(self) -> list[str]:
         return [self.llm_model] if self.llm_model else []

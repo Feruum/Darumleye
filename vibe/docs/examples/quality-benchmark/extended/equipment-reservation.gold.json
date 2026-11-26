@@ -1,0 +1,23 @@
+{
+  "source": "equipment-reservation.md",
+  "description": "Synthetic reservation workflow; three injected root defects, independent conditional exception control. The scenario is a second witness for the same timing defect, not another unique issue.",
+  "defects": [
+    {"id": "EQ-G01", "kinds": ["conflict"], "anchors": [{"line": 3, "quote": "до 18:00"}, {"line": 4, "quote": "В 17:30 обычная бронь автоматически отменяется"}], "description": "Срок активности обычной брони несовместим с отменой в 17:30; приёмка в 17:45 подтверждает конфликт.", "expected_severity": "critical"},
+    {"id": "EQ-G02", "kinds": ["ambiguous", "untestable", "missing"], "anchors": [{"line": 8, "quote": "должно быть доставлено надёжно"}], "description": "Не определены измеримые критерии надёжной доставки.", "expected_severity": "medium"},
+    {"id": "EQ-G03", "kinds": ["other"], "anchors": [{"line": 9, "quote": "Отчёт об активной брони содержит её номер"}, {"line": 10, "quote": "Отчёт об активной брони содержит её номер"}], "description": "Идентичные обязательства с разными идентификаторами.", "expected_severity": "low"}
+  ],
+  "requirements": [
+    {"id": "EE-01", "source_id": "EQ-01", "anchors": [{"line": 3, "quote": "до 18:00"}]},
+    {"id": "EE-02", "source_id": "EQ-02", "anchors": [{"line": 4, "quote": "В 17:30 обычная бронь автоматически отменяется"}]},
+    {"id": "EE-03", "source_id": "EQ-03", "anchors": [{"line": 5, "quote": "в 17:45 она должна оставаться активной"}]},
+    {"id": "EE-04", "source_id": "EQ-04", "anchors": [{"line": 6, "quote": "бронь активна до 20:00"}]},
+    {"id": "EE-05", "source_id": "EQ-05", "anchors": [{"line": 7, "quote": "освобождает оборудование"}]},
+    {"id": "EE-06", "source_id": "EQ-05", "anchors": [{"line": 7, "quote": "сообщает об отмене пользователю"}]},
+    {"id": "EE-07", "source_id": "EQ-06", "anchors": [{"line": 8, "quote": "доставлено надёжно"}]},
+    {"id": "EE-08", "source_id": "EQ-07", "anchors": [{"line": 9, "quote": "содержит её номер"}]},
+    {"id": "EE-09", "source_id": "EQ-08", "anchors": [{"line": 10, "quote": "содержит её номер"}]}
+  ],
+  "negative_controls": [
+    {"id": "EQ-N01", "anchors": [{"line": 3, "quote": "Обычная бронь действует до 18:00"}, {"line": 6, "quote": "действует отдельное исключение: бронь активна до 20:00"}], "description": "Различное время обычной и продлённой брони задано явно и не является противоречием."}
+  ]
+}

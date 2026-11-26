@@ -117,6 +117,10 @@ def expert_reply(data, observations=()):
             return {"assessments": [{"id": item["id"], "status": "agrees", "comment": "Проверено."}
                                     for item in data["disagreements"]]}
         return {"status": "agrees", "comment": "Проверено."}
+    if stage == "multi_adjudicate":
+        return {"decisions": [{"id": row["id"], "status": "confirmed", "severity": row["severity"],
+                              "rationale": "Подтверждено исходным текстом.", "evidence": row["evidence"]}
+                             for row in data["findings"]]}
     if stage.endswith("_individual"):
         findings = [{**item, "criteria": ["Полнота"]} for item in observations
                     if data["role"] == "gap_hunter"]
@@ -262,6 +266,7 @@ async def test_configured_openrouter_low_on_every_review_request(mode, monkeypat
     configuration = Settings(
         _env_file=None, llm_base_url="https://openrouter.ai/api/v1",
         llm_api_key="local-only", llm_model="openai/gpt-6-luna", spec_review_reasoning_effort="low",
+        spec_review_adjudication_reasoning_effort="inherit",
         spec_review_use_nace=False,
     )
     requests = []

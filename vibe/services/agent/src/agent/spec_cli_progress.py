@@ -21,6 +21,7 @@ STAGES = {
     "multi_pair_3": "Валидатор рисков и норм",
     "multi_finalizer": "Финализация экспертных наблюдений",
     "multi_recheck": "Адресная перепроверка",
+    "multi_adjudicate": "Арбитраж подтверждения и критичности",
 }
 TASK_RECOVERY_MESSAGES = {
     "spec_task_retry": "повтор задачи после временного сбоя провайдера",
