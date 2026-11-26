@@ -29,7 +29,7 @@ from agent.services.spec_evidence_graph import (
 )
 from agent.services.spec_review import (
     COMMON, FINDINGS, INDIVIDUAL_CRITERIA, READINESS_CRITERIA, READINESS_PROMPT,
-    SET_CRITERIA, SEVERITY_ORDER, Check, Evidence, Finding, IndividualDraft,
+    REVIEW_CONCURRENCY, SET_CRITERIA, SEVERITY_ORDER, Check, Evidence, Finding, IndividualDraft,
     Passport, ReadinessCheck, Requirement, ReviewPipelineError, ReviewProviderRateLimit, ReviewReport,
     SetCheck, SetDraft, StructuredReview, _correction_reason,
     anchor_missing_finding, apply_code_set_checks, checked_readiness, clarification_questions,
@@ -1214,7 +1214,7 @@ def _build_graph(report, groups, disputes, group_conflicts, reference, fallback,
 async def review_multi_agent(
     specification: Specification, llm, *, run_id: str, deadline: float | None,
     verifier=None, references=None, reference_retriever_factory=None,
-    reference_verifier=None, concurrency=3,
+    reference_verifier=None, concurrency: int = REVIEW_CONCURRENCY,
     review_mode: Literal["multi_agent", "multi_agent_direct"] = "multi_agent",
 ) -> ReviewReport:
     from agent.utils.review_telemetry import review_stage
@@ -1231,13 +1231,15 @@ async def review_multi_agent(
     # The deterministic report assembly always has time left after optional
     # consolidation. A provider failure cannot suppress valid observations.
     optional_deadline = deadline - min(12.0, max(1.0, (deadline - started) * .05))
-    gate = asyncio.Semaphore(min(3, max(1, concurrency)))
+    # Limit active provider attempts, so an expert in backoff leaves its slot
+    # available to other LangGraph tasks and validation-split children.
+    gate = asyncio.Semaphore(concurrency)
 
     async def extract(_state):
         with review_stage("requirement-extraction"):
             async with asyncio.timeout_at(expert_deadline):
                 requirements = await extract_requirements(
-                    specification, llm, concurrency=min(3, concurrency), deadline=expert_deadline,
+                    specification, llm, concurrency=concurrency, deadline=expert_deadline,
                 )
         return {"requirements": requirements}
 
@@ -1277,7 +1279,7 @@ async def review_multi_agent(
     async def expert_call(task: ExpertTask) -> ExpertResult:
         if task.phase == "reference":
             # Reference retrieval is optional and uses its own existing timeout
-            # and provider slot, separate from the three primary calls.
+            # and provider slot, separate from the primary calls.
             with review_stage("reference-rag") as span:
                 result = await compare_references(
                     specification, task.requirements, references, llm, deadline=expert_deadline,

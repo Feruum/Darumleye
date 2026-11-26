@@ -7,6 +7,7 @@ from zipfile import ZipFile
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 from pypdf import PdfWriter
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -136,6 +137,55 @@ def expert_reply(data, observations=()):
         ],
         "findings": [],
     }
+
+
+@pytest.mark.parametrize("review_mode", ["legacy", "multi_agent", "multi_agent_direct"])
+@pytest.mark.parametrize("limit", [8, 12])
+async def test_configured_primary_concurrency_applies_to_extraction_and_review(monkeypatch, review_mode, limit):
+    monkeypatch.setenv("AGENT_SPEC_REVIEW_CONCURRENCY", str(limit))
+    config = Settings(_env_file=None, spec_review_use_nace=False)
+    rules = [f"Показать операцию {i}." for i in range(1, 73)]
+    source = Specification("rules.md", "md", [rule + " Описание." * 90 for rule in rules])
+    peak = {"extraction": 0, "review": 0}
+    active = 0
+
+    async def invoke(messages, **kwargs):
+        nonlocal active
+        data = json.loads(messages[1].content)
+        stage = data["stage"]
+        phase = "extraction" if stage == "extraction" else "review"
+        active += 1
+        peak[phase] = max(peak[phase], active)
+        try:
+            await asyncio.sleep(0)
+            if stage == "extraction":
+                reply = {"requirements": [
+                    {"source_id": None, "text": rules[i - 1], "evidence": quote(rules[i - 1], i, i)}
+                    for i in range(data["primary_start"], data["primary_end"] + 1)
+                ]}
+            elif stage == "individual":
+                reply = {"requirements": [
+                    {"id": r["id"], "checks": [check(c) for c in data["criteria"]]}
+                    for r in data["requirements"]
+                ], "findings": []}
+            elif stage == "set":
+                reply = {"summary": "Проверено.", "findings": [],
+                         "set_checks": [{**check(c), "evidence": []} for c in data["criteria"]]}
+            else:
+                reply = expert_reply(data)
+            return AIMessage(content=json.dumps(reply, ensure_ascii=False))
+        finally:
+            active -= 1
+
+    report = await review_specification_configured(
+        source, SimpleNamespace(model_name="fixture", ainvoke=invoke), config, review_mode=review_mode,
+    )
+    assert peak == {"extraction": limit, "review": limit}
+    assert [r.id for r in report.requirements] == [f"R-{i:03d}" for i in range(1, len(rules) + 1)]
+    assert [r.evidence.quote for r in report.requirements] == rules
+    assert all([c.criterion for c in r.checks] == list(INDIVIDUAL_CRITERIA) for r in report.requirements)
+    assert [c.criterion for c in report.set_checks] == list(SET_CRITERIA)
+    assert report.verdict.status != "ready"
 
 
 def provider(replies, requests, *, model="fixture", base_url="http://test-provider.invalid/v1",
@@ -570,7 +620,6 @@ async def test_all_extraction_chunks_and_review_batches_are_processed():
 async def test_short_review_avoids_singleton_batch_without_skipping_checks(
     count, combined_result, expected_batches
 ):
-    from langchain_core.messages import AIMessage
     from openai import RateLimitError
     from agent.services.spec_review import ReviewProviderRateLimit
 

@@ -1475,7 +1475,7 @@ STAGE: acceptance alignment. Independently compare every supplied concrete input
         drafts = await gather_review_tasks(review_set_scope(scope) for scope in scopes)
         return merge_scoped_set_reviews(scopes, drafts)
 
-    # Independent set and individual branches share the primary three-call limit.
+    # Independent set and individual branches share the primary call limit.
     checks = [
         asyncio.create_task(review_set()),
         asyncio.create_task(
@@ -1569,6 +1569,8 @@ async def review_specification(
 
     if review_mode not in REVIEW_MODES:
         raise ValueError("Unknown review mode")
+    if concurrency < 1:
+        raise ValueError("Review concurrency must be positive")
     run_id = str(UUID(run_id)) if run_id is not None else str(uuid4())
     with review_run(run_id, review_mode=review_mode, source="pipeline") as run:
         with review_stage("review-analysis") as analysis:
@@ -1652,7 +1654,7 @@ async def _review_specification(
 
     # Reference comparison starts from the complete extracted register; it does
     # not wait for individual/set results or compete for their remaining time.
-    # At most three primary calls and one optional comparison are in flight.
+    # The optional comparison has a separate provider slot.
     tasks = [
         asyncio.create_task(primary_branch()),
         asyncio.create_task(reference_branch()),
