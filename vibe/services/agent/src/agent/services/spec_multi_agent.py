@@ -117,6 +117,7 @@ ADJUDICATION_BATCH_SIZE = 5
 ADJUDICATION_SOURCE_CHARACTERS = 24_000
 MAX_FINALIZER_GROUPS = 32
 MAX_MERGE_CANDIDATES = 24
+MAX_REPAIR_PAIR_CHECKS = 12
 MAX_COMPACT_ORIGINS = 12
 MAX_CONSOLIDATION_PAYLOAD_CHARACTERS = 32_000
 COMPACT_ISSUE_CHARACTERS = 800
@@ -146,6 +147,16 @@ before alleging a missing requirement. A stated negative constraint, default,
 exception, data format, or condition is not absent merely because it appears
 elsewhere or with different wording. If the rule is already stated, describe
 only a genuine remaining ambiguity or contradiction; do not invent its absence.
+Each finding must describe ONE independent repair decision. Do not combine
+unrelated failures in a broad finding (even if they concern the same API,
+business process, or source section). If one clarification fully fixes two
+symptoms, report it once, cite all relevant rules, and link every affected
+registered requirement, including both sides of a contradiction. Keep
+independently fixable decisions separate. Check your own finding list for
+paraphrases and narrower restatements before returning it.
+When an owned criterion is failed, its comment must explain the specific
+defect, not state that the requirement is correct. Do not assert consistency
+where a cross-rule conflict is present in the supplied context.
 You may include counterexamples (at most 24) as [{"finding_index": zero-based index in findings,
 "scenario": short hypothetical input/action sequence, "outcomes": concise
 alternative outcomes or unexpected effect}]. These are modeled, not real events;
@@ -183,6 +194,7 @@ class RecheckAssessment(StructuredReview):
     id: str = Field(min_length=1, max_length=60)
     status: Literal["agrees", "disagrees", "uncertain"]
     comment: str = Field(min_length=1, max_length=1200)
+    evidence: list[Evidence] = Field(default_factory=list, max_length=4)
 
 
 class RecheckDraft(StructuredReview):
@@ -190,6 +202,7 @@ class RecheckDraft(StructuredReview):
     # rows require one separately identified assessment for each row.
     status: Literal["agrees", "disagrees", "uncertain"] | None = None
     comment: str | None = Field(default=None, min_length=1, max_length=1200)
+    evidence: list[Evidence] = Field(default_factory=list, max_length=4)
     assessments: list[RecheckAssessment] = Field(default_factory=list, max_length=100)
 
 
@@ -248,6 +261,7 @@ class Observation:
 class Group:
     observations: list[Observation]
     adjudication: AdjudicationDecision | None = None
+    linked_requirements: list[str] = field(default_factory=list)
 
     @property
     def id(self) -> str:
@@ -256,7 +270,8 @@ class Group:
     def finding(self) -> Finding:
         ordered = sorted(self.observations, key=lambda item: (SEVERITY_ORDER[item.finding.severity], item.id))
         result = ordered[0].finding.model_copy(deep=True)
-        result.requirement_ids = list(dict.fromkeys(req for item in ordered for req in item.finding.requirement_ids))
+        result.requirement_ids = list(dict.fromkeys([*(req for item in ordered for req in item.finding.requirement_ids),
+                                                     *self.linked_requirements]))
         result.criteria = list(dict.fromkeys(c for item in ordered for c in item.finding.criteria))
         result.evidence = list({evidence_key(e): e for item in ordered for e in item.finding.evidence}.values())
         result.clarification_question = next((item.finding.clarification_question for item in ordered if item.finding.clarification_question), None)
@@ -726,7 +741,7 @@ def _numeric_negation(text):
     numbers = [re.sub(r"[ \u00a0\u202f]", "", value).replace(",", ".") for value in
                re.findall(r"(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:[.,]\d+)?", text)]
     words = re.findall(
-        r"\b(?:не|нет|без|not|no|never|отсутств\w*|прочерк\w*|невозмож\w*|нельзя|неясн\w*|до|после|перед|через|раньше|позже|"
+        r"\b(?:не|нет|без|not|no|never|отсутств\w*|прочерк\w*|невозмож\w*|нельзя|неясн\w*|до|после|перед|через(?=\s+\d)|раньше|позже|"
         r"больше|меньше|выше|ниже|свыше|before|after|enable|disable|"
         r"включ[её]н\w*|выключ[её]н\w*|разреш[её]н\w*|запрещ[её]н\w*)\b", text)
     absence = {"не", "нет", "без", "not", "no", "never", "нельзя"}
@@ -866,6 +881,30 @@ def _common_objects(left: Finding, right: Finding) -> bool:
     return bool(objects(left.issue).intersection(objects(right.issue)))
 
 
+def _repair_similarity(left: Finding, right: Finding) -> float:
+    """Rank a shared repair, not merely a shared topic or the highest severity."""
+    ignored = ("уточн", "определ", "указ", "соглас", "провер", "необход", "требован",
+               "описан", "добав", "зафикс", "долж", "устан", "документ", "отсутств")
+    def tokens(text):
+        return {word[:5] for word in re.findall(r"\b[а-яёa-z]{4,}\b", text.casefold())
+                if not word.startswith(ignored)}
+    a, b = tokens(left.recommendation), tokens(right.recommendation)
+    return len(a & b) / len(a | b) if a and b else 0.0
+
+
+def _issue_overlap(left: Finding, right: Finding) -> bool:
+    """Retrieve a narrower description of the same subject from a shared anchor."""
+    ignored = ("необходим", "неоднознач", "противореч", "конфликт", "указан", "описан", "формулиров",
+               "требован", "документ", "отсутств", "провер", "установ", "определ", "услови", "неясн",
+               "невозмож", "ожидаем", "должен", "должна", "задает", "задаёт", "предусмотр")
+    def tokens(text):
+        return {word[:4] for word in re.findall(r"\b[а-яёa-z]{4,}\b", text.casefold().replace("ё", "е"))
+                if not word.startswith(ignored)}
+    a, b = tokens(left.issue), tokens(right.issue)
+    shared = a & b
+    return len(shared) >= 2
+
+
 def _compatible_observations(left: Finding, right: Finding) -> bool:
     """Only propose a merge with independently compatible original anchors."""
     l_evidence = {evidence_key(e) for e in left.evidence}
@@ -884,9 +923,21 @@ def _compatible_observations(left: Finding, right: Finding) -> bool:
         return False
     same_scope = set(left.requirement_ids) == set(right.requirement_ids)
     identical_anchors = l_evidence == r_evidence
-    strong_overlap = min(len(left_shared), len(right_shared)) >= 2
+    # One quoted table block may contain several original rows. Count the
+    # shared source coordinates rather than the number of quote objects so
+    # a whole-block citation and two row citations have the same weight.
+    shared_units = {index for a in left_shared for b in right_shared if related(a, b)
+                    for index in range(max(a[0], b[0]), min(a[1], b[1], max(a[0], b[0]) + 63) + 1)}
+    strong_overlap = len(shared_units) >= 2 or min(len(left_shared), len(right_shared)) >= 2
     fully_related = left_shared == l_evidence and right_shared == r_evidence
-    strong_scope = identical_anchors or strong_overlap or fully_related
+    # A narrower restatement can quote only the decisive row of a wider
+    # finding and link a different extracted requirement. Retrieve it when
+    # the repair itself shares substantive vocabulary. The semantic reducer
+    # still has to confirm the same repair; different numeric/polarity claims
+    # remain distinct and no transitive anchor bridge is allowed.
+    contained_scope = (left_shared == l_evidence or right_shared == r_evidence)
+    shared_repair = _repair_similarity(left, right) >= .4
+    strong_scope = identical_anchors or strong_overlap or fully_related or (contained_scope and shared_repair) or _issue_overlap(left, right)
     # Different experts can label the same root defect as missing, ambiguous
     # or conflict. Only propose a cross-kind merge when its literal scope is
     # strongly shared; semantic adjudication is still mandatory.
@@ -959,7 +1010,8 @@ def _merge_candidates(groups: list[Group], *, limit: int | None = MAX_MERGE_CAND
                 continue
             a, b = left.finding(), right.finding()
             full_anchor = {evidence_key(e) for e in a.evidence} == {evidence_key(e) for e in b.evidence}
-            pairs[pair] = (not full_anchor, min(SEVERITY_ORDER[a.severity], SEVERITY_ORDER[b.severity]), pair)
+            similarity = max(_repair_similarity(x.finding, y.finding) for x in left.observations for y in right.observations)
+            pairs[pair] = (not full_anchor, -similarity, min(SEVERITY_ORDER[a.severity], SEVERITY_ORDER[b.severity]), pair)
     return sorted(pairs, key=pairs.__getitem__)[:limit]
 
 
@@ -1036,6 +1088,7 @@ def _compact(group: Group) -> dict:
         "origins_partial": len(group.observations) > MAX_COMPACT_ORIGINS,
         "merge_context_complete": _complete_merge_context(group),
         "origins": [{"id": obs.id, "role": obs.role, "issue": obs.finding.issue[:COMPACT_ISSUE_CHARACTERS],
+                     "recommendation": obs.finding.recommendation[:COMPACT_ISSUE_CHARACTERS],
                      "requirement_ids": obs.finding.requirement_ids[:COMPACT_REQUIREMENT_COUNT],
                      "requirement_count":len(obs.finding.requirement_ids),
                      "evidence_count": len(obs.finding.evidence),
@@ -1236,17 +1289,64 @@ def _aggregate_checks(specification, requirements, results, code_findings):
 def _find_disputes(groups, requirements, set_checks):
     owners = {criterion: item.role for item in EXPERTS for criterion in (*item.individual, *item.set)}
     all_disputes = []
+    by_requirement = {req.id: req for req in requirements}
+    by_set = {row.criterion: row for row in set_checks}
     for group in groups:
-        finding = group.finding()
-        for criterion in finding.criteria:
-            if criterion in INDIVIDUAL_CRITERIA:
-                rows = [(req.id, row) for req in requirements if req.id in finding.requirement_ids for row in req.checks if row.criterion == criterion]
-            else:
-                rows = [(None, row) for row in set_checks if row.criterion == criterion]
-            for id_, check in rows:
-                if check.status in {"pass", "not_applicable"}:
-                    all_disputes.append(Dispute(group.id, owners[criterion], criterion, id_, check, check.status, check.comment))
+        # The merged finding exposes unions of requirement IDs and criteria;
+        # their Cartesian product is NOT the set of originally disputed rows.
+        # Preserve the original observation's (requirement, criterion) scope.
+        cells: set[tuple[str | None, str]] = set()
+        for observation in group.observations:
+            f = observation.finding
+            for criterion in f.criteria:
+                if criterion in INDIVIDUAL_CRITERIA:
+                    cells.update((id_, criterion) for id_ in f.requirement_ids)
+                    if f.kind == "conflict" and criterion in {"Корректность", "Однозначность", "Проверяемость"}:
+                        cells.update((id_, criterion) for id_ in group.linked_requirements)
+                elif criterion in by_set:
+                    cells.add((None, criterion))
+        for id_, criterion in sorted(cells, key=lambda cell: (cell[0] or "", cell[1])):
+            check = (by_set.get(criterion) if id_ is None else next(
+                (row for row in by_requirement[id_].checks if row.criterion == criterion), None))
+            if check is not None and check.status in {"pass", "not_applicable"}:
+                all_disputes.append(Dispute(group.id, owners[criterion], criterion, id_, check, check.status, check.comment))
     return all_disputes
+
+
+def link_conflict_sources(groups: list[Group], requirements: list[Requirement]) -> None:
+    """Trace both sides of a conflict to complete literal registry anchors.
+
+    Never edit original expert observations; the additional final-finding
+    links let the rubric recheck cover the second rule even if an expert
+    supplied only the acceptance example's ID. Context-only citations in
+    missing/ambiguous findings cannot add links by this rule.
+    """
+    for group in groups:
+        # Context from an omission or neighboring merged observation is not
+        # itself one of the mutually incompatible rules. Only original
+        # conflict citations can establish the derived links.
+        anchors = [e for obs in group.observations if obs.finding.kind == "conflict"
+                   for e in obs.finding.evidence]
+        if len({normalize_quote(e.quote) for e in anchors}) < 2:
+            continue
+        known = set(group.linked_requirements)
+        for requirement in requirements:
+            original = requirement.evidence
+            quote = normalize_quote(original.quote)
+            if requirement.id not in known and any(
+                evidence.start == original.start and evidence.end == original.end
+                and quote in normalize_quote(evidence.quote)
+                for evidence in anchors
+            ):
+                group.linked_requirements.append(requirement.id)
+                known.add(requirement.id)
+
+
+def _dispute_resolved(dispute: Dispute) -> bool:
+    """An opposed finding may be inapplicable to the precise rubric cell."""
+    assessment = dispute.assessment
+    return bool(assessment and (assessment.status == "agrees" or
+                                (assessment.status == "disagrees" and assessment.evidence)))
 
 
 def _build_graph(report, groups, disputes, group_conflicts, reference, fallback, results,
@@ -1352,7 +1452,7 @@ def _build_graph(report, groups, disputes, group_conflicts, reference, fallback,
     for index, dispute in enumerate(disputes, 1):
         id_ = f"O-dissent-{index:04d}"
         finding_id = finding_ids[dispute.group_id]
-        resolved = dispute.assessment is not None and dispute.assessment.status == "agrees"
+        resolved = _dispute_resolved(dispute)
         suffix = ("Разрешено: " if resolved else "Не разрешено: ") + (
             dispute.assessment.comment if dispute.assessment else "Требуется ручное уточнение."
         )
@@ -1364,6 +1464,9 @@ def _build_graph(report, groups, disputes, group_conflicts, reference, fallback,
             edge(id_, dispute.requirement_id, "about")
         edge(id_, finding_id, "disagrees_with")
         edge(id_, finding_id, "contributes_to")
+        if dispute.assessment:
+            for evidence in dispute.assessment.evidence:
+                edge(id_, citation(evidence), "cites")
 
     for conflict in group_conflicts:
         left_id, right_id = finding_ids[conflict.left_id], finding_ids[conflict.right_id]
@@ -1455,7 +1558,8 @@ def _build_graph(report, groups, disputes, group_conflicts, reference, fallback,
         nodes=list(nodes.values()), edges=list(edges.values()), experts=experts,
         finalization_status="deterministic_fallback" if fallback else "limited" if limited else "completed",
         adjudication=adjudication_summary,
-        unresolved_count=(sum(d.assessment is None or d.assessment.status != "agrees" for d in [*disputes, *group_conflicts])
+        unresolved_count=(sum(not _dispute_resolved(d) for d in disputes)
+                          + sum(c.assessment is None or c.assessment.status != "agrees" for c in group_conflicts)
                           + sum(audit.assessment is not None and audit.assessment.status != "agrees"
                                 for audit in missing_claim_audits)),
     )
@@ -1822,10 +1926,16 @@ only a bounded subset of groups is shown; do not extrapolate to unseen groups.
 Different wording, expert roles, severity or defect categories do not make
 the same problem different. For each shared repair decision, group every
 candidate that describes that same missing obligation or incompatible result.
+Treat a narrower restatement as the same root when correcting the wider
+finding necessarily resolves it. Compare every original issue AND repair
+decision, not just the representative. If an ambiguous contract and a missing
+operation both require defining the same behavior, do not count the latter
+twice just because one calls it a conflict and one a gap.
 For example, naming the larger and smaller bounds in reverse sentence order
 does not create a second inverted-range defect. Preserve independently
 actionable problems even when they share a citation. Do not merge a missing
-operation with a distinct incorrect method or another separately fixable field.
+operation with an independently incorrect method or another separately fixable field
+if correcting one would still leave the other unresolved. Never merge just to reduce the count.
 Otherwise keep separate. Each merged group must be a list of existing IDs,
 pairwise present in candidate_pairs and not used twice. For the supplied
 disagreement_candidates return a pair only if two groups give genuinely
@@ -1843,6 +1953,15 @@ priority_ids and question_ids array may contain at most 5 unique IDs. Return
 at most 7 unique attention_roles. Never place all groups in a summary array.
 Return {"merges":[["O-...","O-..."]],"disagreements":[["O-...","O-..."]],
 "summary_ids":[],"priority_ids":[],"question_ids":[],"attention_roles":[]}.
+"""
+        if metadata and metadata.get("repair_pair_check"):
+            prompt += """
+This is an independent final pair check, not a summary. Compare the two
+complete supplied groups and their original source anchors. Ask whether one
+concrete repair decision resolves BOTH claims, including narrower restatements.
+If yes, return the sole supplied candidate pair in merges. If either claim
+requires a separate decision after the other is fixed, return merges=[];
+do not trade away distinct defects. All other arrays should be empty.
 """
         async def attempt(instructions):
             draft = await invoke_stage(llm, stage, instructions, payload, ConsolidationDraft)
@@ -2044,10 +2163,16 @@ Return {"merges":[["O-...","O-..."]],"disagreements":[["O-...","O-..."]],
             degrees = Counter(id_ for pair in candidates for id_ in pair)
             if (len(groups) > MAX_FINALIZER_GROUPS or len(candidates) > MAX_MERGE_CANDIDATES
                     or max(degrees.values(), default=0) >= 3):
-                batches = consolidation_batches(groups)
-                if batches:
+                # A single disjoint partition can strand a related group on
+                # the other side of a batch boundary. Recompute candidates
+                # after an actual merge, while sharing the same fixed budget.
+                for fraction in (.22, .42):
+                    batches = consolidation_batches(groups)
+                    if not batches or loop.time() >= now + remaining * fraction:
+                        break
+                    previous_count = len(groups)
                     results = await asyncio.gather(*(consolidate(batch, stage="multi_finalizer",
-                        stage_deadline=now + remaining * .3) for batch in batches))
+                        stage_deadline=now + remaining * fraction) for batch in batches))
                     consumed = {group.id for batch in batches for group in batch}
                     groups = [group for group in groups if group.id not in consumed]
                     for merged, _, _, batch_failed, batch_limited in results:
@@ -2060,13 +2185,59 @@ Return {"merges":[["O-...","O-..."]],"disagreements":[["O-...","O-..."]],
                     preferred_ids = tuple(dict.fromkeys(remapped[id_] for id_ in preferred_ids if id_ in remapped))
                     for summary in metadata.get("paired_summaries", []):
                         summary["highlight_ids"] = list(dict.fromkeys(remapped[id_] for id_ in summary["highlight_ids"] if id_ in remapped))
+                    if len(groups) == previous_count:
+                        break
             groups, conflicts, selection, failed, global_limited = await consolidate(
                 groups, stage="multi_finalizer", global_stage=True,
-                metadata=metadata, preferred_ids=preferred_ids, stage_deadline=now + remaining * .55,
+                metadata=metadata, preferred_ids=preferred_ids, stage_deadline=now + remaining * .62,
             )
             fallback |= failed
             limited |= global_limited
+            # The broad reducer also has to select summaries and resolve
+            # disagreements. A candidate can survive because those tasks
+            # compete for context, not because the roots are distinct. Ask
+            # a final bounded, pair-only question for plausible residuals.
+            conflicts_set = {tuple(sorted((c.left_id, c.right_id))) for c in conflicts}
+            residuals = [pair for pair in _merge_candidates(groups, limit=None) if pair not in conflicts_set]
+            if len(residuals) > MAX_REPAIR_PAIR_CHECKS:
+                limited = True
+            residuals = residuals[:MAX_REPAIR_PAIR_CHECKS]
+            by_id = {group.id: group for group in groups}
+            if residuals and loop.time() < now + remaining * .74:
+                checked = await asyncio.gather(*(consolidate(
+                    [by_id[left], by_id[right]], stage="multi_finalizer",
+                    metadata={"repair_pair_check": True}, stage_deadline=now + remaining * .74,
+                ) for left, right in residuals))
+                approved = set()
+                for pair, (reduced, _, _, pair_failed, pair_limited) in zip(residuals, checked, strict=True):
+                    fallback |= pair_failed
+                    limited |= pair_limited
+                    if not pair_failed and len(reduced) == 1:
+                        approved.add(pair)
+                # Pair approval is not transitive. Merge only a clique of
+                # individually approved relationships, never an A~B~C chain.
+                clusters = {group.id: {group.id} for group in groups}
+                for left, right in residuals:
+                    if (left, right) not in approved:
+                        continue
+                    a, b = clusters[left], clusters[right]
+                    if a is b or not all(tuple(sorted((x, y))) in approved for x in a for y in b):
+                        continue
+                    united = a | b
+                    for member in united:
+                        clusters[member] = united
+                merges = sorted({tuple(sorted(c)) for c in clusters.values() if len(c)>1})
+                if merges:
+                    groups = _apply_merges(groups, [list(m) for m in merges], sorted(approved))
+                    mapped = {obs.id: group.id for group in groups for obs in group.observations}
+                    for key in ("summary_ids", "priority_ids", "question_ids"):
+                        selection[key] = list(dict.fromkeys(mapped[id_] for id_ in selection.get(key, []) if id_ in mapped))
+                    pairs = {tuple(sorted((mapped[item.left_id], mapped[item.right_id]))) for item in conflicts}
+                    conflicts = [GroupConflict(left, right) for left,right in sorted(pairs) if left != right]
+            elif residuals:
+                limited = True
             validate_reduced_index(index, groups)
+        link_conflict_sources(groups, state["requirements"])
         groups.sort(key=lambda group: (SEVERITY_ORDER[group.finding().severity], group.id))
         disputes = _find_disputes(groups, state["requirements"], state["set_checks"])
         return {"groups": groups, "disputes": disputes, "group_conflicts": conflicts, "fallback": fallback,
@@ -2149,6 +2320,13 @@ For unsupported or uncertain use JSON null for severity.
                             allow_correction=True, allow_transient_retry=False)
             except (ValueError, RuntimeError, TimeoutError) as error:
                 logger.warning("spec_adjudication_unavailable", error_type=type(error).__name__)
+                # A single invalid quote in a corrected multi-item response
+                # must not discard four independent, potentially valid
+                # assessments. Bisect only validation failures and retain
+                # the same deadline, gate, and per-response evidence checks.
+                if isinstance(error, ValueError) and len(batch) > 1 and loop.time() < cap:
+                    midpoint = len(batch) // 2
+                    await asyncio.gather(batch_review(batch[:midpoint]), batch_review(batch[midpoint:]))
                 return
             for row in draft.decisions:
                 by_id[row.id].adjudication = row
@@ -2168,11 +2346,11 @@ For unsupported or uncertain use JSON null for severity.
                 if req.id in f.requirement_ids:
                     for check in req.checks:
                         if check.criterion in f.criteria and not any(req.id in af.requirement_ids and check.criterion in af.criteria for af in active_findings):
-                            check.comment = (f"Наблюдение отклонено арбитром; требуется решение аналитика. Исходная оценка: {check.status}. {check.comment}")[:1500]
+                            check.comment = "Наблюдение отклонено арбитром; требуется ручное решение аналитика по этому критерию."
                             check.status = "uncertain"
             for check in state["set_checks"]:
                 if check.criterion in f.criteria and not any(check.criterion in af.criteria for af in active_findings):
-                    check.comment = (f"Наблюдение отклонено арбитром; требуется решение аналитика. Исходная оценка: {check.status}. {check.comment}")[:1500]
+                    check.comment = "Наблюдение отклонено арбитром; требуется ручное решение аналитика по этому критерию."
                     check.status = "uncertain"
         active.sort(key=lambda group: (SEVERITY_ORDER[group.finding().severity], group.id))
         counts = Counter(group.adjudication.status if group.adjudication else "unreviewed" for group in candidates)
@@ -2217,7 +2395,12 @@ For unsupported or uncertain use JSON null for severity.
             payload = {"observation": _compact(group),
                        "source_context": recheck_source_context(specification, group.finding(), state["requirements"])}
             if conflict is None:
-                selected_rows = by_group[id_][:MAX_RECHECK_ROWS]
+                # Correctness, unambiguity and testability are the decisive
+                # cells for a contradiction; review them before incidental
+                # rubric links on a large group.
+                selected_rows = sorted(by_group[id_], key=lambda item: (
+                    item.criterion not in {"Корректность", "Однозначность", "Проверяемость", "Согласованность", "Проверяемость набора"},
+                    item.requirement_id or "", item.criterion))[:MAX_RECHECK_ROWS]
                 payload["disagreements"] = [
                     {"id": f"C-{index:03d}", "role": item.owner, "criterion": item.criterion,
                      "requirement_id": item.requirement_id,
@@ -2228,9 +2411,16 @@ For unsupported or uncertain use JSON null for severity.
 assessment and a source-validated finding. Agrees means the cited finding
 supports a defect in the specific criterion. Return independent assessments
 for every supplied row, keyed by its exact id:
-{"assessments":[{"id":"C-001","status":"agrees|disagrees|uncertain","comment":"brief Russian rationale"}]}.
+{"assessments":[{"id":"C-001","status":"agrees|disagrees|uncertain","comment":"brief Russian rationale",
+"evidence":[{"start":1,"end":1,"quote":"exact source excerpt"}]}]}.
 Do not apply one conclusion to several independent criteria; if a row cannot
-be confirmed from the source, use uncertain for that row."""
+be confirmed from the source, use uncertain for that row. Write the FINAL
+reason for this criterion, explicitly explaining the defect when agrees;
+do not repeat the initial positive comment or merely say it was confirmed.
+When disagrees, quote the exact source rule establishing the specific original
+criterion is satisfied despite the separate finding. If this cannot be
+demonstrated with literal source evidence, use uncertain, not disagrees.
+Do not claim a distinct requirement is incorrect merely because another one is."""
             elif isinstance(conflict, GroupConflict):
                 conflicting = groups[conflict.right_id]
                 payload["conflicting_observation"] = _compact(conflicting)
@@ -2258,6 +2448,8 @@ severity, invent evidence, or delete observations.
 """
             async def attempt(instructions):
                 result = await invoke_stage(llm, "multi_recheck", instructions, payload, RecheckDraft)
+                for evidence in [*result.evidence, *(e for row in result.assessments for e in row.evidence)]:
+                    verify_evidence(specification, evidence)
                 if conflict is None:
                     row_ids = {row["id"] for row in payload["disagreements"]}
                     if result.assessments:
@@ -2275,13 +2467,27 @@ severity, invent evidence, or delete observations.
                     async with gate:
                         assessment = await validated_retry("multi_recheck", prompt, attempt, allow_correction=False, allow_transient_retry=False)
                 if conflict is None:
+                    def row_evidence(dispute, evidence):
+                        # Counterevidence must address the exact criterion's
+                        # source, not an arbitrary true quotation elsewhere.
+                        if dispute.requirement_id:
+                            anchor = next(req.evidence for req in state["requirements"] if req.id == dispute.requirement_id)
+                            anchors = [anchor]
+                        else:
+                            anchors = dispute.check.evidence if isinstance(dispute.check, SetCheck) else []
+                        matching = any(a.start <= e.end and e.start <= a.end and
+                                       (normalize_quote(e.quote) in normalize_quote(a.quote) or
+                                        normalize_quote(a.quote) in normalize_quote(e.quote)) for e in evidence for a in anchors)
+                        return evidence if matching else []
                     if assessment.assessments:
                         by_id = {item.id:item for item in assessment.assessments}
                         for row, dispute in zip(payload["disagreements"], selected_rows, strict=True):
                             result = by_id[row["id"]]
-                            dispute.assessment = RecheckDraft(status=result.status, comment=result.comment)
+                            dispute.assessment = RecheckDraft(status=result.status, comment=result.comment,
+                                evidence=row_evidence(dispute, result.evidence))
                     else:
-                        selected_rows[0].assessment = assessment
+                        dispute = selected_rows[0]
+                        dispute.assessment = assessment.model_copy(update={"evidence": row_evidence(dispute, assessment.evidence)})
                 else:
                     conflict.assessment = assessment
             except (ValueError, RuntimeError, TimeoutError) as error:
@@ -2289,20 +2495,38 @@ severity, invent evidence, or delete observations.
         with review_stage("targeted-re-review") as span:
             await asyncio.gather(*(check_group(id_, conflict) for _, _, id_, conflict in ranked))
             span.count("disagreements", len(disputes) + len(group_conflicts))
-            span.count("unresolved_count", sum(item.assessment is None or item.assessment.status != "agrees"
-                                               for item in [*disputes, *group_conflicts]))
+            span.count("unresolved_count", sum(not _dispute_resolved(item) for item in disputes)
+                       + sum(item.assessment is None or item.assessment.status != "agrees" for item in group_conflicts))
         # Do not upgrade uncertainty to a positive pass. Only the adjudicator
         # may turn a disputed positive assessment into a defect; otherwise
         # conservatively mark uncertain and retain its finding.
+        # A cell may receive several disputes. Reduce their outcomes once,
+        # preserving the exact original comment only in the Evidence Graph.
+        # A successful recheck must not publish the original positive claim
+        # next to FAIL; an unresolved one must not claim a positive outcome.
+        by_cell: dict[tuple[str | None, str], list[Dispute]] = {}
         for dispute in disputes:
-            agrees = dispute.assessment is not None and dispute.assessment.status == "agrees"
-            if dispute.check.status == "fail":
-                continue
-            dispute.check.status = "fail" if agrees else "uncertain"
-            dispute.check.comment = (("Дополнительная проверка подтвердила нарушение. " if agrees else
-                                      "Выводы экспертов расходятся; требуется ручная проверка. ") + dispute.original_comment)[:1500]
-            if agrees and isinstance(dispute.check, SetCheck):
-                dispute.check.evidence = groups[dispute.group_id].finding().evidence
+            by_cell.setdefault((dispute.requirement_id, dispute.criterion), []).append(dispute)
+        for cell in by_cell.values():
+            check = cell[0].check
+            confirmed = [item for item in cell if item.assessment is not None and item.assessment.status == "agrees"]
+            if confirmed:
+                check.status = "fail"
+                check.comment = ("Дополнительная проверка подтвердила нарушение. " + " ".join(dict.fromkeys(
+                    item.assessment.comment for item in confirmed if item.assessment and item.assessment.comment)))[:1500]
+                if isinstance(check, SetCheck):
+                    check.evidence = list({evidence_key(item):item for dispute in confirmed
+                                           for item in groups[dispute.group_id].finding().evidence}.values())
+            elif all(_dispute_resolved(item) for item in cell):
+                # Every challenge was separately disproved by relevant literal
+                # counterevidence. Keep the original positive status, but use
+                # the final criterion-specific rationale, not a stale comment.
+                check.status = cell[0].original_status
+                check.comment = ("Адресная проверка не подтвердила нарушение этого критерия. " + " ".join(dict.fromkeys(
+                    item.assessment.comment for item in cell if item.assessment and item.assessment.comment)))[:1500]
+            elif check.status != "fail":
+                check.status = "uncertain"
+                check.comment = "Выводы экспертов расходятся; требуется ручная проверка критерия и связанных доказательств."
         return {"disputes": disputes, "group_conflicts": group_conflicts,
                 "missing_claim_audits": audits}
 

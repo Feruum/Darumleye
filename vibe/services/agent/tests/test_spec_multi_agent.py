@@ -1083,3 +1083,154 @@ async def test_configured_review_defaults_to_multi_agent_and_old_passport_remain
     assert report.evidence_graph is not None
     historical = report.passport.model_dump(exclude={"review_mode"})
     assert Passport.model_validate(historical).review_mode == "legacy"
+
+
+def test_candidate_retrieval_includes_narrower_repair_with_overlapping_scope():
+    from agent.services.spec_multi_agent import Group, Observation, _merge_candidates
+    from agent.services.spec_review import Evidence, Finding
+
+    a = Evidence(start=11, end=11, quote="Сервис должен вернуть результат отчёта.")
+    b = Evidence(start=12, end=12, quote="В ответе предусмотрены код 200 и код 400.")
+    narrow = Finding(kind="ambiguous", severity="medium", issue="Не определён код ответа 200 для результата отчёта.",
+                     recommendation="Уточнить код ответа для результата отчёта.", evidence=[b], requirement_ids=["R-002"])
+    broad = Finding(kind="conflict", severity="high", issue="Для результата отчёта не определены коды ответа 200 и 400.",
+                    recommendation="Уточнить код ответа для результата отчёта.", evidence=[a,b], requirement_ids=["R-001"])
+    assert _merge_candidates([Group([Observation("O-1", "logic_inspector", broad)]),
+                              Group([Observation("O-2", "scenario_builder", narrow)])]) == [("O-1", "O-2")]
+
+
+@pytest.mark.asyncio
+async def test_conflict_links_both_source_requirements_and_replaces_contradictory_comment():
+    def variant(data, result):
+        if data["stage"].endswith("_set"):
+            result["findings"] = []
+        if data["stage"] == "multi_logic_inspector_set":
+            result["findings"] = [{
+                "kind":"conflict", "severity":"critical", "issue":"Правила R-1 и R-2 несовместимы.",
+                "recommendation":"Согласовать правило.", "criteria":["Корректность"],
+                "requirement_ids":["R-002"], "evidence":[ANCHOR, {"start":2,"end":2,"quote":"R-2. Отобразить дату."}]
+            }]
+        if data["stage"] == "multi_logic_inspector_individual":
+            for item in result["requirements"]:
+                for row in item["checks"]:
+                    if row["criterion"] == "Корректность":
+                        row["comment"] = "Оба правила согласованы."
+        if data["stage"] == "multi_adjudicate":
+            result["decisions"][0]["evidence"] = data["findings"][0]["evidence"]
+        if data["stage"] == "multi_recheck":
+            result.clear()
+            result["assessments"] = [{"id":row["id"], "status":"agrees", "comment":"Подтверждено расхождение исходных правил."}
+                                     for row in data["disagreements"]]
+
+    report = await review_specification(source(), VariantChat(variant), review_mode="multi_agent_direct")
+    assert set(report.findings[0].requirement_ids) == {"R-001", "R-002"}
+    for requirement in report.requirements:
+        check = next(row for row in requirement.checks if row.criterion == "Корректность")
+        assert check.status == "fail"
+        assert "согласованы" not in check.comment
+        assert "расхождение" in check.comment
+    # Initial expert comment is retained for audit, not presented as final reasoning.
+    assert any(node.kind == "observation" and "Оба правила согласованы" in (node.description or "")
+               for node in report.evidence_graph.nodes)
+
+
+@pytest.mark.asyncio
+async def test_unresolved_recheck_does_not_repeat_positive_comment_as_own_conclusion():
+    report = await review_specification(source(), ExpertChat(), review_mode="multi_agent_direct")
+    row = next(check for check in report.requirements[0].checks if check.criterion == "Полнота")
+    assert row.status == "uncertain"
+    assert "Проверено." not in row.comment
+    assert "ручн" in row.comment
+
+
+def test_candidate_retrieval_counts_distinct_shared_units_not_excerpt_objects():
+    from agent.services.spec_multi_agent import Group, Observation, _merge_candidates
+    from agent.services.spec_review import Evidence, Finding
+
+    a = Evidence(start=10, end=10, quote="Описание метода обещает получение информации.")
+    b = Evidence(start=11, end=11, quote="Тип запроса задан для обновления информации.")
+    c = Evidence(start=12, end=12, quote="Указана операция записи данных.")
+    d = Evidence(start=13, end=13, quote="Приложение запрашивает информацию.")
+    combined = Evidence(start=10, end=11, quote=a.quote + "\n" + b.quote)
+    narrow = Finding(kind="missing", severity="high", issue="Контракт получения информации не описан.",
+                     recommendation="Указать параметры чтения.", evidence=[a,b,c], requirement_ids=["R-010"])
+    broader = Finding(kind="conflict", severity="high", issue="Через API не определено получение информации.",
+                      recommendation="Разделить операции и установить маршруты.", evidence=[combined,d], requirement_ids=["R-011"])
+    assert _merge_candidates([Group([Observation("O-1", "gap_hunter", narrow)]),
+                              Group([Observation("O-2", "contract_inspector", broader)])]) == [("O-1", "O-2")]
+
+
+@pytest.mark.asyncio
+async def test_failed_adjudication_batch_retries_individual_groups_without_losing_valid_decisions():
+    def variant(data, result):
+        if data["stage"] == "multi_logic_inspector_set":
+            template = result["findings"][0]
+            result["findings"] = [{**template, "issue": "Не определён предел 10."},
+                                  {**template, "issue": "Не определён предел 20."}]
+        elif data["stage"] == "multi_gap_hunter_set":
+            result["findings"] = []
+        elif data["stage"] == "multi_adjudicate":
+            for finding, decision in zip(data["findings"], result["decisions"], strict=True):
+                if "20" in finding["issue"]:
+                    decision["evidence"] = [{"start":1,"end":1,"quote":"Несуществующая цитата."}]
+    chat = VariantChat(variant)
+    report = await review_specification(source(), chat, review_mode="multi_agent_direct")
+    assert len(report.findings) == 2
+    assert report.evidence_graph.adjudication.confirmed == 1
+    assert report.evidence_graph.adjudication.unreviewed == 1
+    assert any(len(stage["findings"]) == 1 for stage in chat.stages if stage["stage"] == "multi_adjudicate")
+
+
+def test_merged_observations_do_not_create_cartesian_disputes_or_attach_context_only_requirements():
+    from agent.services.spec_multi_agent import Group, Observation, _find_disputes, link_conflict_sources
+    from agent.services.spec_review import Check, Evidence, Finding, Requirement
+
+    a = Evidence(start=1, end=1, quote="Первое правило обработки.")
+    b = Evidence(start=2, end=2, quote="Второе правило обработки.")
+    c = Evidence(start=3, end=3, quote="Контекст параметра запроса.")
+    reqs = [Requirement(id=f"R-{i:03}", source_id=None, text=e.quote, evidence=e,
+                        checks=[Check(criterion=criterion, status="pass", comment="Проверено.")
+                                for criterion in ["Корректность", "Полнота"]]) for i,e in enumerate([a,b,c],1)]
+    conflict = Finding(kind="conflict", severity="high", issue="Правила несовместимы.",
+                       recommendation="Согласовать правило.", evidence=[a,b], requirement_ids=["R-001"], criteria=["Корректность"])
+    omission = Finding(kind="missing", severity="medium", issue="Не описано правило.",
+                       recommendation="Согласовать правило.", evidence=[b,c], requirement_ids=["R-002"], criteria=["Полнота"])
+    groups = [Group([Observation("O-1","logic_inspector",conflict),Observation("O-2","gap_hunter",omission)])]
+    link_conflict_sources(groups, reqs)
+    assert "R-003" not in groups[0].finding().requirement_ids
+    assert {(d.requirement_id,d.criterion) for d in _find_disputes(groups,reqs,[])} == {
+        ("R-001","Корректность"), ("R-002","Корректность"), ("R-002","Полнота")
+    }
+
+
+@pytest.mark.asyncio
+async def test_counterevidence_resolves_inapplicable_finding_to_specific_check():
+    def variant(data, result):
+        if data["stage"] == "multi_recheck":
+            result.clear()
+            result["assessments"] = [{"id": row["id"], "status": "disagrees",
+                                      "comment": "Этот критерий подтверждён указанным правилом.",
+                                      "evidence": [ANCHOR]} for row in data["disagreements"]]
+    report = await review_specification(source(), VariantChat(variant), review_mode="multi_agent_direct")
+    row = next(c for c in report.requirements[0].checks if c.criterion == "Полнота")
+    assert row.status == "pass"
+    assert report.evidence_graph.unresolved_count == 0
+    assert len(report.findings) == 1  # the separate source-grounded finding is retained
+
+
+@pytest.mark.asyncio
+async def test_residual_pair_review_recovers_duplicate_missed_by_broad_finalizer():
+    def variant(data, result):
+        if data["stage"] == "multi_gap_hunter_set":
+            result["findings"][0]["issue"] = "Период выписки не определён."
+        elif data["stage"] == "multi_finalizer" and data.get("repair_pair_check"):
+            assert len(data["groups"]) == 2
+            assert len(data["candidate_pairs"]) == 1
+            result["merges"] = [list(data["candidate_pairs"][0])]
+    chat = VariantChat(variant)
+    report = await review_specification(source(), chat, review_mode="multi_agent_direct")
+    assert len(report.findings) == 1
+    assert any(stage.get("repair_pair_check") for stage in chat.stages)
+    assert {node.role for node in report.evidence_graph.nodes if node.kind=="observation" and node.severity} == {
+        "logic_inspector", "gap_hunter"
+    }
