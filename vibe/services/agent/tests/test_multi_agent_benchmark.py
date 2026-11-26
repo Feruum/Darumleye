@@ -2,10 +2,12 @@ import json
 import subprocess
 import sys
 from hashlib import sha256
+from io import StringIO
 from pathlib import Path
 
 import pytest
 
+from agent.spec_cli_progress import ReviewProgress
 from scripts import compare_review_modes
 from scripts.compare_review_modes import BenchmarkCase, experiment_matrix, paired_comparisons, score_expert_review, summarize_runs
 from scripts.evaluate_spec_report import evaluate
@@ -130,6 +132,7 @@ def test_process_timeout_partial_stderr_preserves_safe_active_stage(tmp_path, mo
     assert record["exit_code"] == 124
     assert record["failure_category"] == "process_timeout"
     assert record["failed_stage"] == "set"
+    assert record["observed_peak_primary_calls"] == record["observed_peak_total_calls"] == 1
     assert "SECRET" not in json.dumps(record)
     assert "PRIVATE" not in json.dumps(record)
 
@@ -158,7 +161,48 @@ def test_stage_request_counts_exclude_replies_and_unrecognized_log_text():
     assert compare_review_modes.stage_activity(log.encode()) == {
         "stage_requests": {"multi_pair_1": 2},
         "spec_task_retry": {"multi_pair_1": 1}, "spec_task_split": {"multi_pair_1": 1},
+        "observed_peak_primary_calls": 1, "observed_peak_total_calls": 1,
     }
+
+
+def test_peak_counts_only_overlapping_numbered_calls_from_cli_progress():
+    stream = StringIO()
+    progress = ReviewProgress(stream=stream)
+    stage = "multi_pair_1"
+    first = progress.request_started(stage)
+    second = progress.request_started(stage)
+    reference = progress.request_started("reference")
+    progress.line("Выполняется: AI-анализ · запросов в работе: 99, ответов получено: 0…")
+    progress.request_finished(stage, second, False)
+    progress.request_finished("reference", reference, True)
+    # Replaying either edge of a finished call must not affect the next batch.
+    label = compare_review_modes.STAGES[stage]
+    progress.line(f"{label} — запрос {second} · ответ получен")
+    progress.line(f"{label} — запрос {second} · отправлен")
+    progress.request_started("multi_pair_2")
+    progress.request_started(stage)
+    progress.request_finished(stage, first, True)
+    stream.write(f"[00:01] {label} — запрос 4 · отправлен")  # Interrupted before the newline.
+    result = compare_review_modes.stage_activity(stream.getvalue().encode())
+    assert result["stage_requests"] == {stage: 3, "multi_pair_2": 1, "reference": 1}
+    assert result["observed_peak_primary_calls"] == 3
+    assert result["observed_peak_total_calls"] == 3
+
+
+def test_peak_includes_reference_calls_only_while_they_overlap_primary_calls():
+    stream = StringIO()
+    progress = ReviewProgress(stream=stream)
+    progress.request_started("individual")
+    progress.request_started("reference")
+    result = compare_review_modes.stage_activity(stream.getvalue())
+    assert result["observed_peak_primary_calls"] == 1
+    assert result["observed_peak_total_calls"] == 2
+
+
+@pytest.mark.parametrize("stderr", [None, b"", "[00:05] Проверка по регламентам — запрос 1 · ответ получен\n"])
+def test_peak_is_unknown_without_a_complete_start_event(stderr):
+    result = compare_review_modes.stage_activity(stderr)
+    assert result["observed_peak_primary_calls"] is result["observed_peak_total_calls"] is None
 
 
 def test_stress_input_is_an_optional_unlabelled_cli_case(tmp_path, monkeypatch, capsys):
