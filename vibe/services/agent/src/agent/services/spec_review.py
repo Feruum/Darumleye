@@ -19,7 +19,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from agent.build_info import GIT_COMMIT, SERVICE_VERSION
-from agent.config.settings import Settings
+from agent.config.settings import REVIEW_CONCURRENCY, Settings
 from agent.services.spec_decision_review import DecisionReview, NaceFindingVerifier
 from agent.services.spec_eval_checkpoint import (
     checkpoint_attempt,
@@ -111,7 +111,6 @@ Additionally assess the supplied readiness_checklist criteria against the origin
 """
 MAX_REQUIREMENTS = 500
 REVIEW_BATCH_SIZE = 6
-REVIEW_CONCURRENCY = 3
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 Status = Literal["pass", "fail", "uncertain", "not_applicable"]
 
@@ -1475,7 +1474,7 @@ STAGE: acceptance alignment. Independently compare every supplied concrete input
         drafts = await gather_review_tasks(review_set_scope(scope) for scope in scopes)
         return merge_scoped_set_reviews(scopes, drafts)
 
-    # Independent set and individual branches share the primary three-call limit.
+    # Independent set and individual branches share the primary call limit.
     checks = [
         asyncio.create_task(review_set()),
         asyncio.create_task(
@@ -1569,6 +1568,8 @@ async def review_specification(
 
     if review_mode not in REVIEW_MODES:
         raise ValueError("Unknown review mode")
+    if concurrency < 1:
+        raise ValueError("Review concurrency must be positive")
     run_id = str(UUID(run_id)) if run_id is not None else str(uuid4())
     with review_run(run_id, review_mode=review_mode, source="pipeline") as run:
         with review_stage("review-analysis") as analysis:
@@ -1652,7 +1653,7 @@ async def _review_specification(
 
     # Reference comparison starts from the complete extracted register; it does
     # not wait for individual/set results or compete for their remaining time.
-    # At most three primary calls and one optional comparison are in flight.
+    # The optional comparison has a separate provider slot.
     tasks = [
         asyncio.create_task(primary_branch()),
         asyncio.create_task(reference_branch()),

@@ -27,6 +27,8 @@ The document-only CLI requires Python 3.12+, [uv](https://docs.astral.sh/uv/), a
 uv run --project vibe/services/agent --frozen python -m agent.spec_review_cli --input .artifacts/requirements.md --output .artifacts/report.md --env-file .env
 ```
 
+All three modes allow up to nine simultaneous primary model calls per review by default. Set `AGENT_SPEC_REVIEW_CONCURRENCY` to change that limit. When you select references, the Reference Inspector can make one additional call concurrently.
+
 The CLI defaults to paired validation. Add `--review-mode multi_agent_direct` for direct validation or `--review-mode legacy` for classic review. Use a `.json` output filename for the structured report. The standalone CLI's OCR requires Tesseract (Russian, Kazakh and English) and Poppler for scanned documents and images.
 
 See [CLI options, input limits and evaluation](vibe/docs/SPEC_REVIEW.md), [review architecture](vibe/docs/MULTI_AGENT_REVIEW.ru.md), and [reference review](vibe/docs/REGULATORY_CONTEXT.md) for the full workflow.

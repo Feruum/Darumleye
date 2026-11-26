@@ -6,6 +6,8 @@ Spec Review is the FinTech requirements validator built for the [BCC-HUB × MNU 
 
 New reviews use the **`multi_agent` workflow by default**, on GPT-6 Luna in the selected configuration. Five independent experts, the optional Reference Inspector, three paired validators, global evidence consolidation and the Finalizer produce a verified Evidence Graph; see the [current Spec Review 2.0 architecture](MULTI_AGENT_REVIEW.ru.md). Select `multi_agent_direct` to pass observations directly from the experts to global validation. Both multi-agent routes include the Finalizer and downstream checks. Select `legacy` for the classic pipeline shown below, which uses the same document parser and citation checks.
 
+All three modes default to at most nine simultaneous primary model calls per review. Set `AGENT_SPEC_REVIEW_CONCURRENCY` to a positive integer to change that limit. When reference documents are selected, the Reference Inspector has one independent slot, allowing up to ten simultaneous calls at the default setting. Actual concurrency depends on how many tasks are ready.
+
 ```mermaid
 flowchart TD
   A[File and configuration] --> B[Validate input, run ID, SHA-256]
@@ -31,9 +33,9 @@ flowchart TD
 
 - Input extraction validates the source and saves its original SHA-256 and run UUID in the report passport. Extraction scans every numbered source unit in bounded ranges, retains source citations, and assigns stable report IDs. No requirement is discarded by retrieval.
 - Deterministic code checks flag repeated verbatim requirements and reused explicit identifiers across distinct source ranges. They contribute original citations; model-based set checks cannot mark those verified criteria as passed.
-- Individual review checks every extracted requirement against the nine quality characteristics. Extraction calls and the combined individual/set review each run at most three concurrently by default (`AGENT_SPEC_REVIEW_CONCURRENCY=1..3`), plus one independent normative comparison when selected and return validated individual results in source order.
+- Individual review checks every extracted requirement against the nine quality characteristics. Validated individual results return in source order.
 - For short source documents (up to 5,000 characters including unit separators) with exactly seven extracted requirements, individual review uses one seven-requirement batch instead of batches of six and one. The same prompts, criteria, evidence checks and concurrency limit apply. If the combined response fails validation, the reviewer falls back to the normal six-plus-one batches with their correction budget; provider or network errors still fail normally. Larger documents retain the original batching.
-- Set review independently evaluates the full original document, extracted requirements, and verified code findings using six set characteristics; it shares the three-call primary concurrency limit with individual review. Code aggregates the findings after both branches.
+- Set review independently evaluates the full original document, extracted requirements, and verified code findings using six set characteristics; it shares the configured primary concurrency limit with individual review. Code aggregates the findings after both branches.
 - The optional normative branch runs concurrently with the primary review after extraction and uses a dedicated ChromaDB index for explicitly selected source versions; BM25 and vector retrieval are fused per requirement; Drex optionally reranks the candidates. Only original retrieved passages go to the comparison model. Coverage counts and both source citations are reported. The comparison prompt prioritizes up to three actionable observations per source in this bounded sample instead of claiming an exhaustive legal audit.
 - Pydantic validates each stage. Code checks exact quotes, requirement IDs, complete criterion coverage, deduplicates findings, and derives statistics/readiness. A malformed or deterministically invalid model result gets at most one correction request within the same deadline; retry never relaxes evidence rules and does not retry authentication, filtering, or network failures. Drex independently evaluates core findings and separate normative observations; neither score changes the primary verdict.
 - The criteria are inspired by ISO/IEC/IEEE 29148; this is not certification or legal advice.
@@ -64,7 +66,7 @@ Download the official `docs/requirements.md` separately into `.artifacts/require
 
 ## Complete organizer evaluation
 
-The public organizer repository contains one requirements document and the scoring/report criteria in its README, not an executable eval runner or a labeled gold set. Download the original document separately and verify its SHA-256. For a long live run, use the same agent with a controlled sequential provider budget and optional checkpoints:
+The public organizer repository contains one requirements document and the scoring/report criteria in its README, not an executable eval runner or a labeled gold set. Download the original document separately and verify its SHA-256. For a long live run, the following example explicitly limits the provider to one primary call at a time and enables checkpoints:
 
 ```bash
 AGENT_SPEC_REVIEW_CONCURRENCY=1 AGENT_LLM_TIMEOUT_SECONDS=120 AGENT_LLM_MAX_RETRIES=0 \

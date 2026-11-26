@@ -79,7 +79,7 @@ function FindingRow({ entry, number, selected, source, onSelect, itemRef }: { en
 function FindingInspector({ entry, index, total, number, source, activeEvidence, onShow, showQuote, onPrevious, onNext, onBack }: { entry?: GroupedReviewFinding; index: number; total: number; number?: number; source: AgentSpecReview['source']; activeEvidence?: ReviewEvidence; onShow: CitationAction; showQuote: boolean; onPrevious: () => void; onNext: () => void; onBack: () => void }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 0 }, [entry?.id])
-  return <section className="sr-reader-inspector" aria-label="Подробности замечания" data-testid="review-finding-detail">
+  return <section className="sr-reader-inspector" tabIndex={-1} aria-label="Подробности замечания" data-testid="review-finding-detail">
     <div className="sr-inspector-mobile-back"><Button type="button" size="sm" variant="ghost" onClick={onBack}><HugeiconsIcon icon={ArrowLeft01Icon} size={16} aria-hidden />Все замечания</Button></div>
     {entry ? <>
       <div className="sr-inspector-toolbar">
@@ -264,7 +264,7 @@ export function SpecReviewReport({ report, sourceFile, sourceUnits, sourceLoadin
     setFindingQuery('')
     chooseFinding(entry.id)
     setMobilePane('findings')
-    window.requestAnimationFrame(() => selectedRow.current?.querySelector('button')?.focus({ preventScroll: true }))
+    window.requestAnimationFrame(() => layoutRef.current?.querySelector<HTMLElement>('.sr-reader-inspector')?.focus({ preventScroll: true }))
   }
 
   function pickAnnotation(annotation: ReviewAnnotation) {

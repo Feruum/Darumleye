@@ -32,7 +32,7 @@ const loginRoute = createRoute({
 const dateConflictDemoRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/demo/date-conflict',
-  component: lazyRouteComponent(() => import('./features/agent/DateConflictDemo'), 'DateConflictDemo'),
+  component: lazyRouteComponent(() => import('./features/agent'), 'DateConflictDemo'),
 })
 
 const signupRoute = createRoute({

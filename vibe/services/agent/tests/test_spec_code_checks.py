@@ -266,7 +266,7 @@ async def test_individual_batches_are_concurrent_bounded_and_ordered(monkeypatch
 
     monkeypatch.setattr(review, "invoke_stage", invoke)
     findings = await asyncio.wait_for(
-        review.review_individually(source, requirements, SimpleNamespace()), timeout=1
+        review.review_individually(source, requirements, SimpleNamespace(), gate=asyncio.Semaphore(3)), timeout=1
     )
 
     assert peak == 3
@@ -354,7 +354,7 @@ async def test_extraction_chunks_are_bounded_and_source_order_is_stable(monkeypa
 
     monkeypatch.setattr(review, "invoke_stage", invoke)
     requirements = await asyncio.wait_for(
-        review.extract_requirements(spec, SimpleNamespace()), timeout=1
+        review.extract_requirements(spec, SimpleNamespace(), concurrency=3), timeout=1
     )
     assert peak == 3
     assert finished != started

@@ -409,26 +409,45 @@ def failure_diagnostics(stderr: str | bytes | None, *, exit_code: int, process_t
     return result
 
 
-def stage_activity(stderr: str | bytes | None) -> dict[str, dict[str, int]]:
+def stage_activity(stderr: str | bytes | None) -> dict[str, dict[str, int] | int | None]:
     if isinstance(stderr, bytes):
         stderr = stderr.decode("utf-8", errors="replace")
     labels = {label: stage for stage, label in STAGES.items()}
     events = {message: event for event, message in TASK_RECOVERY_MESSAGES.items()}
     counts = {key: Counter() for key in ("stage_requests", *events.values())}
-    for line in (stderr or "").splitlines():
+    seen: set[tuple[str, str]] = set()
+    active: set[tuple[str, str]] = set()
+    peak_primary = peak_total = 0
+    # The CLI flushes each complete progress line. A killed process can leave a partial tail.
+    complete_lines, _, _ = (stderr or "").rpartition("\n")
+    for line in complete_lines.splitlines():
         progress = _PROGRESS_LINE.fullmatch(line)
         if not progress:
             continue
         label, _, message = progress[1].partition(" — ")
         if label not in labels:
             continue
+        stage = labels[label]
         if message in events:
-            counts[events[message]][labels[label]] += 1
-        else:
-            request = _REQUEST_LINE.fullmatch(message)
-            if request and request[2] == "отправлен":
-                counts["stage_requests"][labels[label]] += 1
-    return {key: dict(values) for key, values in counts.items()}
+            counts[events[message]][stage] += 1
+            continue
+        request = _REQUEST_LINE.fullmatch(message)
+        if not request:
+            continue
+        key = (stage, request[1])
+        if request[2] != "отправлен":
+            active.discard(key)
+        elif key not in seen:
+            seen.add(key)
+            active.add(key)
+            counts["stage_requests"][stage] += 1
+            peak_total = max(peak_total, len(active))
+            peak_primary = max(peak_primary, sum(s != "reference" for s, _ in active))
+    return {
+        **{key: dict(values) for key, values in counts.items()},
+        "observed_peak_primary_calls": peak_primary if seen else None,
+        "observed_peak_total_calls": peak_total if seen else None,
+    }
 
 
 def run_trial(trial: Trial, output_dir: Path, env_file: Path, timeout: int,

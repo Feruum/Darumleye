@@ -3,12 +3,12 @@ import { useState } from 'react'
 
 import { Button } from '@/components/interface/button'
 import { Typography } from '@/components/typography'
-import { ReviewSetup } from '@/features/agent/ReviewSetup'
-import { SpecReviewReport } from '@/features/agent/SpecReviewReport'
-import { createExampleFile, loadExampleReport } from '@/features/agent/review-example'
-import type { ReferenceDraft } from '@/features/agent/reference-sources'
+import { ReviewSetup } from './ReviewSetup'
+import { SpecReviewReport } from './SpecReviewReport'
+import { createExampleFile, loadExampleReport } from './review-example'
+import type { ReferenceDraft } from './reference-sources'
 import { AGENT_DEFAULT_REVIEW_MODE } from '@web-app-demo/contracts'
-import '@/features/agent/spec-review.css'
+import './spec-review.css'
 
 function ReviewDemo() {
   const [exampleOpen, setExampleOpen] = useState(false)

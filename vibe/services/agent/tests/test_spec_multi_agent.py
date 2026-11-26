@@ -62,7 +62,7 @@ class ExpertChat:
 async def test_multi_agent_parallel_coverage_and_provenance():
     chat = ExpertChat()
     source = extract_specification("fixture.txt", "text/plain", SOURCE.encode())
-    report = await review_specification(source, chat)
+    report = await review_specification(source, chat, concurrency=3)
     assert report.passport.review_mode == "multi_agent"
     assert report.evidence_graph is not None
     for req in report.requirements:
@@ -98,7 +98,7 @@ async def test_direct_route_preserves_expert_provenance_and_uses_only_the_centra
             return await super().ainvoke(messages, **kwargs)
 
     chat = DirectChat()
-    report = await review_specification(source(), chat, review_mode="multi_agent_direct")
+    report = await review_specification(source(), chat, review_mode="multi_agent_direct", concurrency=3)
 
     assert report.passport.review_mode == "multi_agent_direct"
     assert all(not stage.startswith("multi_pair_") for stage, _ in chat.efforts)
