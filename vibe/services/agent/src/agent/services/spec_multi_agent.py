@@ -11,7 +11,7 @@ import json
 import operator
 import re
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from itertools import combinations
 from typing import Annotated, Literal, TypedDict
@@ -22,13 +22,15 @@ from langgraph.types import Send
 from pydantic import Field
 
 from agent.services.spec_document import Specification, normalize_quote
+from agent.services.spec_stage_retry import is_transient_provider_error
+from agent.services.spec_eval_checkpoint import individual_split_marker
 from agent.services.spec_evidence_graph import (
     EvidenceGraph, ExpertSummary, GraphEdge, GraphEvidence, GraphNode, Role,
 )
 from agent.services.spec_review import (
     COMMON, FINDINGS, INDIVIDUAL_CRITERIA, READINESS_CRITERIA, READINESS_PROMPT,
     SET_CRITERIA, SEVERITY_ORDER, Check, Evidence, Finding, IndividualDraft,
-    Passport, ReadinessCheck, Requirement, ReviewPipelineError, ReviewReport,
+    Passport, ReadinessCheck, Requirement, ReviewPipelineError, ReviewProviderRateLimit, ReviewReport,
     SetCheck, SetDraft, StructuredReview, _correction_reason,
     anchor_missing_finding, apply_code_set_checks, checked_readiness, clarification_questions,
     compare_references, extract_requirements, invoke_stage, ordered_checks,
@@ -204,6 +206,13 @@ class ExpertResult:
     reference: ReferenceReview | None = None
 
 
+@dataclass(frozen=True)
+class FailedExpertTask:
+    key: str
+    category: Literal["validation", "rate_limited", "provider_unavailable"]
+    reason: str | None = None
+
+
 @dataclass
 class Observation:
     id: str
@@ -280,6 +289,7 @@ class ReviewState(TypedDict, total=False):
     requirements: list[Requirement]
     tasks: list[ExpertTask]
     results: Annotated[list[ExpertResult], operator.add]
+    failed_tasks: Annotated[list[FailedExpertTask], operator.add]
     pairs: Annotated[list[PairResult], operator.add]
     observations: list[Observation]
     coverage_cards: list[dict]
@@ -1226,7 +1236,9 @@ async def review_multi_agent(
     async def extract(_state):
         with review_stage("requirement-extraction"):
             async with asyncio.timeout_at(expert_deadline):
-                requirements = await extract_requirements(specification, llm, concurrency=min(3, concurrency))
+                requirements = await extract_requirements(
+                    specification, llm, concurrency=min(3, concurrency), deadline=expert_deadline,
+                )
         return {"requirements": requirements}
 
     async def prepare(state):
@@ -1442,37 +1454,64 @@ unassigned capabilities. Use uncertainty if context is insufficient.
                 return ExpertResult(task.key, task.role, set_checks=set_checks, readiness=rows, findings=draft.findings,
                                     counterexamples=draft.counterexamples, extraction_gaps=gaps)
 
-        try:
-            async with asyncio.timeout_at(expert_deadline):
-                async with gate:
-                    return await validated_retry(stage, instructions, attempt)
-        except ValueError as error:
-            if task.phase == "individual" and len(task.requirements) > 1 and _correction_reason(error) == "The model response was interrupted":
-                half = len(task.requirements) // 2
-                split_tasks = [
-                    asyncio.create_task(expert_call(ExpertTask(f"{task.key}:{index}", task.role, task.phase, items,
-                                                             large_review=task.large_review)))
-                    for index, items in enumerate((task.requirements[:half], task.requirements[half:]))
-                ]
-                try:
-                    subresults = await asyncio.gather(*split_tasks)
-                except BaseException:
-                    for split in split_tasks:
-                        split.cancel()
-                    await asyncio.gather(*split_tasks, return_exceptions=True)
+        # A local pass cannot establish a property of the entire set. Only
+        # individual checks can be partitioned by their assigned requirement IDs.
+        can_split = task.phase == "individual" and len(task.requirements) > 1
+        marker = individual_split_marker(getattr(llm, "model_name", None), stage, instructions,
+                                         payload, ExpertIndividualDraft) if can_split else None
+        if marker is None or not marker.is_file():
+            try:
+                return await validated_retry(stage, instructions, attempt, gate=gate, deadline=expert_deadline)
+            except ValueError as error:
+                if not can_split or _correction_reason(error) is None:
                     raise
-                combined = ExpertResult(task.key, task.role)
-                for result in subresults:
-                    combined.individual.update(result.individual)
-                    combined.counterexamples.extend(item.model_copy(update={"finding_index": item.finding_index + len(combined.findings)}) for item in result.counterexamples)
-                    combined.findings.extend(result.findings)
-                return combined
-            raise
+                if marker is not None:
+                    marker.touch(mode=0o600)
+                logger.warning("spec_task_split", stage=stage)
+
+        half = len(task.requirements) // 2
+        children = [
+            replace(task, key=f"{task.key}:{index}", requirements=batch)
+            for index, batch in enumerate((task.requirements[:half], task.requirements[half:]))
+        ]
+        # A failed child must not cancel a still-validating sibling. Both retain
+        # the original deadline. Parent cancellation propagates through gather.
+        outcomes = await asyncio.gather(*(expert_call(child) for child in children), return_exceptions=True)
+        failures = [outcome for outcome in outcomes if isinstance(outcome, BaseException)]
+        if failures:
+            raise next((error for error in failures if not is_transient_provider_error(error)), failures[0])
+        validate_task_coverage(children, outcomes)
+        combined = ExpertResult(task.key, task.role)
+        for result in outcomes:
+            combined.individual.update(result.individual)
+            offset = len(combined.findings)
+            combined.counterexamples.extend(
+                example.model_copy(update={"finding_index": offset + example.finding_index})
+                for example in result.counterexamples
+            )
+            combined.findings.extend(result.findings)
+        return combined
 
     async def run_expert(state):
         task = state["task"]
         with review_stage(task.role.replace("_", "-")) as telemetry:
-            result = await expert_call(task)
+            try:
+                result = await expert_call(task)
+            except ValueError as error:
+                reason = _correction_reason(error)
+                if reason is not None:
+                    failure = FailedExpertTask(task.key, "validation", reason)
+                elif isinstance(error, ReviewPipelineError) and is_transient_provider_error(error):
+                    category = "rate_limited" if isinstance(error, ReviewProviderRateLimit) else "provider_unavailable"
+                    failure = FailedExpertTask(task.key, category)
+                else:
+                    raise
+                # The join fails after independent tasks have checkpointed their results.
+                # Store only program-owned identifiers and allowlisted validation reasons.
+                telemetry.failure(type(error).__name__)
+                logger.warning("spec_task_exhausted", stage=f"multi_{task.role}_{task.phase}",
+                               category=failure.category, reason=failure.reason)
+                return {"failed_tasks": [failure]}
             telemetry.count("observations", len(result.findings))
         return {"results": [result]}
 
@@ -1538,13 +1577,19 @@ Return {"merges":[["O-...","O-..."]],"disagreements":[["O-...","O-..."]],
         try:
             async with asyncio.timeout_at(cap):
                 async with gate:
-                    merged, conflicts, selection = await validated_retry(stage, prompt, attempt, allow_correction=False)
+                    merged, conflicts, selection = await validated_retry(stage, prompt, attempt, allow_correction=False, allow_transient_retry=False)
             return merged, conflicts, selection, limited
         except (ValueError, RuntimeError, TimeoutError) as error:
             logger.warning("spec_multi_consolidation_fallback", stage=stage, error_type=type(error).__name__)
             return groups, [], {}, True
 
     async def join_experts(state):
+        failures = sorted(state.get("failed_tasks", []), key=lambda failure: failure.key)
+        if failures:
+            details = ", ".join(f"{f.key} ({f.reason or f.category})" for f in failures)
+            if all(f.category == "rate_limited" for f in failures):
+                raise ReviewProviderRateLimit(f"Provider rate limit prevented required expert review: {details}")
+            raise ReviewPipelineError(f"Required expert review could not complete: {details}")
         results = state["results"]
         validate_task_coverage(state["tasks"], results)
         observations = _observations(results)
@@ -1785,7 +1830,7 @@ severity, invent evidence, or delete observations.
             try:
                 async with asyncio.timeout_at(optional_deadline):
                     async with gate:
-                        assessment = await validated_retry("multi_recheck", prompt, attempt, allow_correction=False)
+                        assessment = await validated_retry("multi_recheck", prompt, attempt, allow_correction=False, allow_transient_retry=False)
                 if conflict is None:
                     if assessment.assessments:
                         by_id = {item.id:item for item in assessment.assessments}

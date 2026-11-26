@@ -5,7 +5,7 @@ import json
 import re
 import subprocess
 from difflib import SequenceMatcher
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from functools import lru_cache
 from pathlib import Path
 from datetime import UTC, datetime
@@ -54,6 +54,7 @@ from agent.services.spec_reference_review import (
 from agent.services.spec_review_context import SetScope, is_large_document, requirement_batches, requirement_terms, selected_units, set_scopes, terms
 from agent.services.spec_report import render_markdown
 from agent.services.spec_review_mode import MULTI_AGENT_MODES, REVIEW_MODES, ReviewMode
+from agent.services.spec_stage_retry import ReviewPipelineError, ReviewProviderRateLimit, StageRetry
 from agent.utils.review_telemetry import review_stage
 
 import structlog
@@ -267,14 +268,6 @@ class ReviewReport(StructuredReview):
     evidence_graph: EvidenceGraph | None = None
 
 
-class ReviewPipelineError(ValueError):
-    """Stage validation failure; safe message contains no document or provider data."""
-
-
-class ReviewProviderRateLimit(ReviewPipelineError):
-    """The configured chat provider rejected a request due to rate or quota limits."""
-
-
 async def invoke_stage[T: BaseModel](
     llm: ChatOpenAI, stage: str, instructions: str, data: dict, output: type[T]
 ) -> T:
@@ -359,12 +352,13 @@ async def invoke_stage[T: BaseModel](
                 diagnostics["validation_fields"] = safe_validation_fields(error)
             logger.warning("spec_stage_failed", **diagnostics)
             if status == 429:
-                raise ReviewProviderRateLimit(
-                    f"AI provider rate limit reached during {stage} stage; retry later"
-                ) from error
-            raise ReviewPipelineError(
-                f"Model could not complete the {stage} stage"
-            ) from error
+                failure = ReviewProviderRateLimit(f"AI provider rate limit reached during {stage} stage; retry later")
+            else:
+                failure = ReviewPipelineError(f"Model could not complete the {stage} stage")
+            # The SDK may already have retried. The opt-in CLI cooldown also handles 429s.
+            failure.retry_managed_by_client = (getattr(llm, "max_retries", 0) != 0
+                                               or (status == 429 and getattr(llm, "handles_rate_limits", False)))
+            raise failure from error
 
 
 # Only repeat failed model-output validation, never auth/network errors,
@@ -415,7 +409,11 @@ async def validated_retry[R](
     attempt: Callable[[str], Awaitable[R]],
     *,
     allow_correction: bool = True,
+    allow_transient_retry: bool = True,
+    gate: asyncio.Semaphore | None = None,
+    deadline: float | None = None,
 ) -> R:
+    transport = StageRetry(enabled=allow_transient_retry)
     correction = None
     field_hints: list[dict] = []
     attempts = 2 if allow_correction else 1
@@ -436,7 +434,7 @@ async def validated_retry[R](
                 span.count("correction_attempts", 1)
             with checkpoint_attempt(stage, instructions) as state:
                 try:
-                    result = await attempt(current)
+                    result = await transport.run(attempt, current, stage=stage, gate=gate, deadline=deadline)
                 except ValueError as error:
                     state.reject()
                     correction = _correction_reason(error)
@@ -753,7 +751,11 @@ async def bounded_review_map[T, R](
         async with semaphore:
             return await worker(item)
 
-    tasks = [asyncio.create_task(run(item)) for item in items]
+    return await gather_review_tasks(run(item) for item in items)
+
+
+async def gather_review_tasks[R](operations: Iterable[Awaitable[R]]) -> list[R]:
+    tasks = [asyncio.ensure_future(op) for op in operations]
     try:
         return await asyncio.gather(*tasks)
     except BaseException:
@@ -768,7 +770,9 @@ async def extract_requirements(
     llm: ChatOpenAI,
     *,
     concurrency: int = REVIEW_CONCURRENCY,
+    deadline: float | None = None,
 ) -> list[Requirement]:
+    gate = asyncio.Semaphore(concurrency)
     units = specification.numbered_units()
     large = is_large_document(specification)
     coverage_candidates = uncovered_requirement_candidates(specification, [])
@@ -814,12 +818,13 @@ async def extract_requirements(
                     )
             return draft.requirements
 
-        return await validated_retry("extraction", EXTRACTION_PROMPT + " The input coverage_candidates highlight explicit declarations and technical constraints whose anchors must be considered. Include each actual obligation, including negative API constraints and explicit content types; do not invent obligations from labels or ignore independent constraints on the same line.", attempt)
+        return await validated_retry("extraction", EXTRACTION_PROMPT + " The input coverage_candidates highlight explicit declarations and technical constraints whose anchors must be considered. Include each actual obligation, including negative API constraints and explicit content types; do not invent obligations from labels or ignore independent constraints on the same line.", attempt, gate=gate, deadline=deadline)
 
     extracted: list[ExtractedRequirement] = []
     seen = set()
-    for batch in await bounded_review_map(
-        [bounds for bounds in specification.extraction_chunks() if not large or any(unit.strip() for unit in specification.units[bounds[0] - 1:bounds[1]])], extract_chunk, concurrency=concurrency
+    for batch in await gather_review_tasks(
+        extract_chunk(bounds) for bounds in specification.extraction_chunks()
+        if not large or any(unit.strip() for unit in specification.units[bounds[0] - 1:bounds[1]])
     ):
         for requirement in batch:
             evidence = requirement.evidence
@@ -850,7 +855,9 @@ async def review_individually(
     llm: ChatOpenAI,
     *,
     gate: asyncio.Semaphore | None = None,
+    deadline: float | None = None,
 ) -> list[Finding]:
+    gate = gate or asyncio.Semaphore(REVIEW_CONCURRENCY)
     large = is_large_document(specification, len(requirements))
     async def review_batch(
         batch: list[Requirement], *, allow_correction: bool = True
@@ -923,7 +930,7 @@ async def review_individually(
             "individual",
             (INDIVIDUAL_PROMPT.replace("the complete source document", "selected original document context") + " The context is bounded; use uncertain if a conclusion depends on information outside the supplied context.") if large else INDIVIDUAL_PROMPT,
             attempt,
-            allow_correction=allow_correction,
+            allow_correction=allow_correction, gate=gate, deadline=deadline,
         )
 
     # Avoid a second provider request for a lone overflow requirement in a
@@ -934,12 +941,7 @@ async def review_individually(
         <= EXTRACTION_CHUNK_CHARACTERS
     ):
         try:
-            results = await bounded_review_map(
-                [requirements],
-                lambda batch: review_batch(batch, allow_correction=False),
-                gate=gate,
-            )
-            return results[0]
+            return await review_batch(requirements, allow_correction=False)
         except ValueError as error:
             # If the larger response is incomplete or invalid, restore the
             # original batches and their normal correction budget. Do not
@@ -953,7 +955,7 @@ async def review_individually(
         requirements[offset : offset + REVIEW_BATCH_SIZE]
         for offset in range(0, len(requirements), REVIEW_BATCH_SIZE)
     ]
-    results = await bounded_review_map(batches, review_batch, gate=gate)
+    results = await gather_review_tasks(review_batch(batch) for batch in batches)
     return [finding for batch in results for finding in batch]
 
 
@@ -1267,7 +1269,7 @@ async def compare_references(
         return reference_review_unavailable(references)
     retrieval = None
     try:
-        async with asyncio.timeout(budget):
+        async with asyncio.timeout(budget) as timeout:
             factory = reference_retriever_factory or local_reference_retriever
             serialized = serialize_requirements(requirements)
             retrieved = await asyncio.to_thread(
@@ -1298,7 +1300,7 @@ async def compare_references(
                     partial_specification=partial,
                 )
 
-            return await validated_retry("reference", REFERENCE_PROMPT + (" The supplied specification context is only a sample of a longer document; never conclude that an obligation is absent or a source is not applicable solely because it is not in the sample." if partial else ""), attempt)
+            return await validated_retry("reference", REFERENCE_PROMPT + (" The supplied specification context is only a sample of a longer document; never conclude that an obligation is absent or a source is not applicable solely because it is not in the sample." if partial else ""), attempt, deadline=timeout.when())
     except Exception as error:
         logger.warning("reference_review_unavailable", error_type=type(error).__name__)
         return reference_review_unavailable(references, retrieval)
@@ -1341,6 +1343,7 @@ async def review_core(
     run_at: str,
     run_id: str,
     concurrency: int = REVIEW_CONCURRENCY,
+    deadline: float | None = None,
 ) -> ReviewReport:
     code_findings = review_code_checks(specification, requirements)
     gate = asyncio.Semaphore(concurrency)
@@ -1394,11 +1397,11 @@ async def review_core(
             draft.set_checks = set_checks
             return draft
 
-        return await validated_retry("set", prompt, attempt)
+        return await validated_retry("set", prompt, attempt, gate=gate, deadline=deadline)
 
     async def review_set() -> SetDraft:
         if not is_large_document(specification, len(requirements)):
-            draft = (await bounded_review_map([None], review_set_scope, gate=gate))[0]
+            draft = await review_set_scope(None)
             examples = acceptance_example_units(specification)
             if not examples:
                 return draft
@@ -1426,8 +1429,7 @@ STAGE: acceptance alignment. Independently compare every supplied concrete input
                 return response.findings
 
             try:
-                async with gate:
-                    additions = await validated_retry("acceptance_alignment", prompt, alignment)
+                additions = await validated_retry("acceptance_alignment", prompt, alignment, gate=gate, deadline=deadline)
             except (ReviewPipelineError, ValueError) as error:
                 logger.warning("spec_acceptance_alignment_unavailable", error_type=type(error).__name__)
                 for check in draft.set_checks:
@@ -1444,14 +1446,14 @@ STAGE: acceptance alignment. Independently compare every supplied concrete input
             draft.findings.extend(additions)
             return draft
         scopes = set_scopes(specification, requirements)
-        drafts = await bounded_review_map(scopes, review_set_scope, gate=gate)
+        drafts = await gather_review_tasks(review_set_scope(scope) for scope in scopes)
         return merge_scoped_set_reviews(scopes, drafts)
 
     # Independent set and individual branches share the primary three-call limit.
     checks = [
         asyncio.create_task(review_set()),
         asyncio.create_task(
-            review_individually(specification, requirements, llm, gate=gate)
+            review_individually(specification, requirements, llm, gate=gate, deadline=deadline)
         ),
     ]
     try:
@@ -1582,12 +1584,12 @@ async def _review_specification(
     logger.info("spec_review_started", run_id=run_id)
     with review_stage("requirement-extraction"):
         requirements = await extract_requirements(
-            specification, llm, concurrency=concurrency
+            specification, llm, concurrency=concurrency, deadline=deadline
         )
 
     async def primary_branch() -> ReviewReport:
         report = await review_core(
-            specification, requirements, llm, run_at, run_id, concurrency
+            specification, requirements, llm, run_at, run_id, concurrency, deadline=deadline
         )
         if verifier is not None:
             with review_stage("drex-verification") as span:

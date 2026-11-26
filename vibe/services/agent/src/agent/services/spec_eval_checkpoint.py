@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -13,6 +14,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
+import httpx
 import structlog
 from openai import RateLimitError
 from pydantic import BaseModel, ValidationError
@@ -118,6 +120,17 @@ def checkpoint_scope(checkpoint: StageCheckpoint | None) -> Iterator[None]:
         _checkpoint.reset(token)
 
 
+def individual_split_marker(
+    model: str | None, stage: str, instructions: str, data: dict, output: type[BaseModel],
+) -> Path | None:
+    """A routing hint only. Each child still uses its own validated stage checkpoint."""
+    checkpoint = _checkpoint.get()
+    if checkpoint is None or not model:
+        return None
+    key = checkpoint.key(model, stage, instructions, data, output)
+    return checkpoint.directory / f"{key}.split"
+
+
 @contextmanager
 def checkpoint_attempt(stage: str, instructions: str) -> Iterator[StageAttempt]:
     attempt = StageAttempt(_checkpoint.get(), instructions, stage)
@@ -165,23 +178,32 @@ class RateLimitWaitingChat:
     ):
         self.chat = chat
         self.model_name = chat.model_name
+        self.max_retries = getattr(chat, "max_retries", 0)
+        self.handles_rate_limits = True
         self.retry_limit = retry_limit
         self.sleep = sleep
 
     @staticmethod
-    def retry_delay(error: RateLimitError) -> float | None:
-        body = error.body if isinstance(error.body, dict) else {}
+    def retry_delay(error: BaseException, *, default_delay: float = 60.0) -> float | None:
+        body = getattr(error, "body", None)
+        if body is None and isinstance(error, httpx.HTTPStatusError):
+            try:
+                body = error.response.json()
+            except (ValueError, httpx.ResponseNotRead):
+                pass
+        body = body if isinstance(body, dict) else {}
         nested = body.get("error", body)
         code = getattr(error, "code", None) or (
             nested.get("code") if isinstance(nested, dict) else None
         )
-        if code in {
+        if isinstance(code, str) and code in {
             "insufficient_quota",
             "billing_hard_limit_reached",
             "billing_not_active",
         }:
             return None
-        value = error.response.headers.get("retry-after")
+        response = getattr(error, "response", None)
+        value = response.headers.get("retry-after") if response is not None else None
         if value:
             try:
                 delay = float(value)
@@ -194,8 +216,8 @@ class RateLimitWaitingChat:
                     delay = 60
             # Never retry earlier than the provider requests. Very long waits
             # remain a recoverable checkpointed failure, not an endless loop.
-            return max(1.0, delay) if 0 <= delay <= 300 else None
-        return 60.0
+            return max(1.0, delay) if math.isfinite(delay) and 0 <= delay <= 300 else None
+        return default_delay
 
     async def ainvoke(self, *args, **kwargs):
         for index in range(self.retry_limit + 1):

@@ -507,7 +507,7 @@ async def test_all_extraction_chunks_and_review_batches_are_processed():
     [
         (7, "valid", [7]),
         (7, "invalid", [7, 6, 1]),
-        (7, "rate_limit", [7]),
+        (7, "rate_limit", [7, 7]),
         (8, "valid", [6, 2]),
     ],
 )
