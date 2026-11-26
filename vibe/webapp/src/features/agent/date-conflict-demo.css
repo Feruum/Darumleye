@@ -1,0 +1,87 @@
+.sr-date-demo {
+  min-height: 100svh;
+  background: color-mix(in srgb, var(--accent) 50%, var(--background));
+  color: var(--foreground);
+}
+
+.sr-date-header,
+.sr-date-content {
+  width: min(100% - 3rem, 64rem);
+  margin-inline: auto;
+}
+
+.sr-date-header {
+  min-height: 5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: .8rem;
+}
+
+.sr-date-brand { color: var(--foreground); font-size: 1.15rem; font-weight: 750; letter-spacing: -.045em; }
+.sr-date-content { display: grid; gap: 1.25rem; padding-block: clamp(2rem, 5vw, 4.5rem) 2rem; }
+.sr-date-intro { display: grid; justify-items: start; gap: .85rem; }
+.sr-date-intro h1 { font-size: clamp(2rem, 5vw, 4.4rem); font-weight: 700; line-height: 1; letter-spacing: -.065em; text-wrap: balance; }
+.sr-date-intro p { max-width: 37rem; text-wrap: pretty; }
+.sr-date-demo :is(h1, h2)[tabindex]:focus { outline: none; }
+
+.sr-date-issue {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  color: var(--brand-text);
+  font-size: .8rem;
+  font-weight: 700;
+}
+
+.sr-date-issue > span { width: .48rem; height: .48rem; border-radius: 50%; background: currentColor; }
+.sr-date-evidence, .sr-date-options, .sr-date-compare-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
+.sr-date-evidence article, .sr-date-decision, .sr-date-comparison {
+  min-width: 0;
+  padding: clamp(1rem, 2.3vw, 1.55rem);
+  border: 1px solid var(--border);
+  border-radius: 1.25rem;
+  background: var(--card);
+}
+.sr-date-evidence article { display: grid; gap: .7rem; align-content: start; }
+.sr-date-location { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: .35rem 1rem; font-size: .83rem; }
+.sr-date-location span, .sr-date-options small, .sr-date-footer { color: var(--muted-foreground); }
+.sr-date-month { color: var(--brand-text); font-size: clamp(1.65rem, 3.8vw, 3.3rem); font-weight: 700; line-height: 1.1; letter-spacing: -.055em; }
+.sr-date-evidence blockquote { border-left: 2px solid var(--brand-text); padding-left: .8rem; line-height: 1.6; font-size: .9rem; overflow-wrap: anywhere; }
+.sr-date-decision, .sr-date-comparison { display: grid; gap: 1rem; }
+.sr-date-decision fieldset { min-width: 0; }
+.sr-date-decision legend, .sr-date-comparison h2 { margin-bottom: .7rem; font-size: clamp(1.2rem, 2.4vw, 1.65rem); font-weight: 700; letter-spacing: -.04em; }
+.sr-date-options label { display: flex; align-items: start; gap: .7rem; padding: .85rem; border: 1px solid var(--border); border-radius: .75rem; cursor: pointer; }
+.sr-date-options label:has(:checked) { border-color: var(--brand-text); background: var(--accent); }
+.sr-date-options label:focus-within { outline: 2px solid var(--ring); outline-offset: 2px; }
+.sr-date-options input { flex: none; width: 1rem; height: 1rem; margin-top: .17rem; accent-color: var(--brand-text); }
+.sr-date-options label span { display: grid; gap: .18rem; font-size: .88rem; }
+.sr-date-options small { font-size: .78rem; }
+.sr-date-edit { display: grid; gap: .6rem; }
+.sr-date-edit-lines { border: 1px solid var(--border); border-radius: .7rem; overflow: hidden; }
+.sr-date-edit-lines p { display: flex; gap: .5rem; padding: .6rem .8rem; font-size: .86rem; overflow-wrap: anywhere; }
+.sr-date-edit-lines p:first-child { background: color-mix(in srgb, var(--destructive) 9%, var(--card)); }
+.sr-date-edit-lines p + p { border-top: 1px solid var(--border); background: var(--accent); }
+.sr-date-edit-lines ins { text-decoration: none; }
+.sr-date-actions, .sr-date-comparison header, .sr-date-footer { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .65rem; }
+.sr-date-comparison { scroll-margin-top: 1rem; }
+.sr-date-comparison h2 { margin: .25rem 0 0; }
+.sr-date-compare-grid article { display: grid; gap: .65rem; padding: .85rem; border-radius: .75rem; background: var(--muted); font-size: .85rem; }
+.sr-date-compare-grid article:last-child { background: var(--accent); }
+.sr-date-compare-grid h3, .sr-date-compare-grid dd { font-weight: 700; }
+.sr-date-compare-grid dl { display: grid; gap: .35rem; }
+.sr-date-compare-grid dl div { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .25rem .65rem; }
+.sr-date-compare-grid strong { color: var(--brand-text); }
+.sr-date-demo [data-state=resolved] { color: var(--foreground); }
+.sr-date-footer { font-size: .76rem; }
+.sr-date-footer a { text-decoration: underline; text-underline-offset: .18em; }
+
+@media (max-width: 590px) {
+  .sr-date-header, .sr-date-content { width: calc(100% - 1.5rem); }
+  .sr-date-header { min-height: 3.75rem; }
+  .sr-date-evidence, .sr-date-options { grid-template-columns: 1fr; }
+  .sr-date-actions button { width: 100%; }
+}

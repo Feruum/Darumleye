@@ -1,0 +1,10 @@
+{
+  "report_sha256": "47dc635bb7facbaa0abf57e9444b423d04dcb474449c5f1126e94c5695ae72d7",
+  "decisions": {
+    "D-001": "GT-001",
+    "D-002": "GT-002",
+    "D-003": "NEG-001",
+    "D-004": "GT-005",
+    "D-005": "valid_extra"
+  }
+}

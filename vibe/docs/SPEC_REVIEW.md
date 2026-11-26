@@ -122,6 +122,10 @@ Accepted proposals are applied together against the same original text. Exact, u
 
 Source TXT/Markdown is exported as normalized extracted text; PDF, DOCX, XLSX, CSV, JPG/JPEG and PNG are exported as TXT without original layout or spreadsheet structure. Correction is unavailable when PDF pages or image units were unreadable. Proposals and accepted selections live only in the open browser workspace; download the draft before leaving. The correction endpoint uses the configured chat provider, authenticates the owner, and has a bounded 120-second deadline. The official CLI and original document-only submission remain unchanged.
 
+### Date conflict demo
+
+Open `/demo/date-conflict` in the web application, or select the demo link in the review setup. Choose the purchase date or posting date, apply the proposed text replacement, and run the comparison. The public route verifies the month in two original excerpts and in the revised copy. The demo runs locally without an account or model key and covers the one displayed conflict.
+
 ### Synthetic quality benchmark
 
 The examples under `vibe/docs/examples/quality-benchmark/` contain two fictional specification pairs: a service-information screen (`defective.md`/`revised.md`) and a museum booking workflow (`workflow.md`/`workflow-revised.md`). Each original has four deliberately annotated defects; the paired revisions remove those labeled defects. The annotations also identify distinct obligation occurrences, including obligations that share an ID or have no explicit ID. These are training examples, not representative held-out data or the organizer document. Generate JSON reports with the normal CLI, then compare each report with its corresponding gold annotation:
