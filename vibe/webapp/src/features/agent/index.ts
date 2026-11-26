@@ -1,4 +1,5 @@
 export { AgentWorkspace } from './AgentWorkspace'
+export { DateConflictDemo } from './DateConflictDemo'
 export { ReviewChatWorkspace } from './ReviewChatWorkspace'
 export { ReviewRunProvider, ReviewRunIndicator } from './ReviewRunProvider'
 export {
