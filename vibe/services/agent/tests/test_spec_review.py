@@ -11,7 +11,7 @@ from langchain_openai import ChatOpenAI
 from pypdf import PdfWriter
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from agent.config.settings import settings
+from agent.config.settings import Settings, settings
 from agent.infrastructure.database import Base, get_session
 from agent.server import app
 from agent.services.spec_decision_review import NaceFindingVerifier
@@ -20,6 +20,7 @@ from agent.services.spec_document import Specification
 from agent.services.spec_review import (
     extract_specification,
     review_specification,
+    review_specification_configured,
 )
 
 URL = "/api/v1/spec-reviews"
@@ -105,12 +106,46 @@ def payloads(first_quote=QUOTE, location=2, include_second=True):
     ]
 
 
-def provider(replies, requests):
+def expert_reply(data, observations=()):
+    """External model fixture for the scoped expert protocol."""
+    stage = data["stage"]
+    if stage == "multi_finalizer" or stage.startswith("multi_pair_"):
+        return {"merges": []}
+    if stage == "multi_recheck":
+        if "disagreements" in data:
+            return {"assessments": [{"id": item["id"], "status": "agrees", "comment": "Проверено."}
+                                    for item in data["disagreements"]]}
+        return {"status": "agrees", "comment": "Проверено."}
+    if stage.endswith("_individual"):
+        findings = [{**item, "criteria": ["Полнота"]} for item in observations
+                    if data["role"] == "gap_hunter"]
+        rows = []
+        for req in data["requirements"]:
+            failed = any(req["id"] in item["requirement_ids"] for item in findings)
+            rows.append({"id": req["id"], "checks": [
+                check(c, "fail" if failed and c == "Полнота" else "pass") for c in data["criteria"]
+            ]})
+        return {"requirements": rows, "findings": findings}
+    assert stage.endswith("_set")
+    return {
+        "summary": "Проверено.",
+        "set_checks": [{**check(c), "evidence": []} for c in data["criteria"]],
+        "readiness_checklist": [
+            {"id": key, "availability": "uncertain", "status": "uncertain", "comment": "Требует уточнения."}
+            for key in data["readiness_criteria"]
+        ],
+        "findings": [],
+    }
+
+
+def provider(replies, requests, *, model="fixture", base_url="http://test-provider.invalid/v1",
+             api_key="local-only", **client_options):
     core_index = 0
     saved = {}
 
     async def complete(request):
         nonlocal core_index
+        assert request.url == httpx.URL(base_url + "/chat/completions")
         body = json.loads(request.content)
         requests.append(body)
         data = json.loads(body["messages"][1]["content"])
@@ -118,6 +153,8 @@ def provider(replies, requests):
         signature = json.dumps(data, sort_keys=True)
         if signature in saved:
             reply = saved[signature]
+        elif stage.startswith("multi_"):
+            reply = expert_reply(data, replies[1]["findings"])
         elif stage == "reference":
             reply = replies[-1]
         elif stage == "set":
@@ -147,11 +184,64 @@ def provider(replies, requests):
         )
 
     return ChatOpenAI(
-        model="fixture",
-        api_key="local-only",
-        base_url="http://test-provider.invalid/v1",
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
         http_async_client=httpx.AsyncClient(transport=httpx.MockTransport(complete)),
+        **client_options,
     )
+
+
+@pytest.mark.parametrize("mode", ["legacy", "multi_agent", "multi_agent_direct"])
+async def test_configured_openrouter_low_on_every_review_request(mode, monkeypatch):
+    from agent.core import agent as agent_module
+    from agent.services.spec_reference_rag import RetrievedReferences
+    from agent.services.spec_reference_review import ReferenceManifestEntry, prepare_references
+
+    configuration = Settings(
+        _env_file=None, llm_base_url="https://openrouter.ai/api/v1",
+        llm_api_key="local-only", llm_model="openai/gpt-6-luna", spec_review_reasoning_effort="low",
+        spec_review_use_nace=False,
+    )
+    requests = []
+    monkeypatch.setattr(agent_module, "settings", configuration)
+    monkeypatch.setattr(agent_module, "ChatOpenAI", lambda **kw: provider(payloads() + [reference_payload()], requests, **kw))
+    chat = agent_module.Agent("rag").llm
+    references = prepare_references(
+        [ReferenceManifestEntry.model_validate(reference_manifest())],
+        [("ref.txt", "text/plain", REFERENCE_QUOTE.encode())],
+    )
+    indexed = RetrievedReferences(
+        passages={"S-001": [{"start": 1, "end": 1, "text": REFERENCE_QUOTE}]},
+        coverage={"S-001": {"total_chunks": 1, "selected_chunks": 1, "partial": False,
+                            "total_characters": len(REFERENCE_QUOTE), "selected_characters": len(REFERENCE_QUOTE)}},
+        mode="chroma_hybrid_local_features",
+    )
+    report = await review_specification_configured(
+        extract_specification("spec.md", "text/markdown", TEXT.encode()),
+        chat, configuration, references=references, review_mode=mode,
+        reference_retriever_factory=lambda: SimpleNamespace(retrieve=lambda *_: indexed),
+    )
+    assert report.passport.review_mode == mode
+    assert report.passport.model == configuration.llm_model
+    assert report.reference_review.status == "completed"
+    stages = {json.loads(body["messages"][1]["content"])["stage"] for body in requests}
+    assert {"reference", "extraction"} <= stages
+    if mode == "legacy":
+        assert {"set", "individual"} <= stages
+        assert not any(stage.startswith("multi_") for stage in stages)
+    else:
+        assert {"multi_finalizer", "multi_recheck"} <= stages
+        assert {stage for stage in stages if stage.startswith("multi_pair_")} == (
+            {"multi_pair_1", "multi_pair_2", "multi_pair_3"} if mode == "multi_agent" else set()
+        )
+    for body in requests:
+        assert body["model"] == configuration.llm_model
+        assert body["reasoning"] == {"effort": "low"}
+        assert body["provider"] == {"require_parameters": True}
+        assert "temperature" not in body
+        assert body["max_completion_tokens"] == 8192
+        assert "reasoning_effort" not in body
 
 
 @pytest.fixture
@@ -238,13 +328,14 @@ def test_only_trusted_proxy_can_submit_specifications(review_client):
 @pytest.mark.parametrize(
     "extension,mime", [("txt", "text/plain"), ("md", "text/markdown")]
 )
+@pytest.mark.parametrize("mode", ["legacy", "multi_agent_direct"])
 def test_review_sends_all_lines_and_returns_complete_report(
-    review_client, monkeypatch, extension, mime
+    review_client, monkeypatch, extension, mime, mode
 ):
     requests = []
     configure_provider(monkeypatch, payloads(), requests)
     response = review_client.post(
-        URL, headers=HEADERS, files={"file": (f"spec.{extension}", TEXT, mime)}, data={"review_mode": "legacy"}
+        URL, headers=HEADERS, files={"file": (f"spec.{extension}", TEXT, mime)}, data={"review_mode": mode}
     )
     assert response.status_code == 200, response.text
     report = response.json()
@@ -271,10 +362,17 @@ def test_review_sends_all_lines_and_returns_complete_report(
             "messages": [{"type": "human", "content": "What should I fix?"}]}
     assert review_client.post('/api/v1/chat/stream', headers={**HEADERS, "X-User-ID": "other"}, json=chat).status_code == 404
     assert review_client.post('/api/v1/chat/stream', headers=HEADERS, json={**chat, "thread_id": "other-review-thread"}).status_code == 422
-    assert len(requests) == 3
+    assert report["passport"]["review_mode"] == mode
     stages = [json.loads(req["messages"][1]["content"])["stage"] for req in requests]
     assert stages[0] == "extraction"
-    assert set(stages[1:]) == {"individual", "set"}
+    if mode == "legacy":
+        assert report["evidence_graph"] is None
+        assert sorted(stages) == ["extraction", "individual", "set"]
+    else:
+        assert report["evidence_graph"]["nodes"]
+        assert "multi_finalizer" in stages
+        assert "multi_gap_hunter_individual" in stages
+        assert all(not stage.startswith("multi_pair_") for stage in stages)
     assert [
         unit["text"]
         for unit in json.loads(requests[0]["messages"][1]["content"])["units"]
@@ -465,7 +563,7 @@ async def test_all_extraction_chunks_and_review_batches_are_processed():
     [
         (7, "valid", [7]),
         (7, "invalid", [7, 6, 1]),
-        (7, "rate_limit", [7]),
+        (7, "rate_limit", [7, 7]),
         (8, "valid", [6, 2]),
     ],
 )
@@ -610,7 +708,8 @@ def test_cli_writes_complete_report_with_controlled_model(
     assert "## Проверка каждого требования" in document
     assert "## Проверка набора требований" in document
     assert "## Итог" in document
-    assert len(requests) == 3
+    stages = [json.loads(item["messages"][1]["content"])["stage"] for item in requests]
+    assert sorted(stages) == ["extraction", "individual", "set"]
 
 
 def test_cli_rejects_overwriting_input(tmp_path):
@@ -1168,7 +1267,8 @@ def test_reference_review_separate_and_all_five_categories(review_client, monkey
     assert "RF-001" in report["report_markdown"]
     assert REFERENCE_QUOTE in report["report_markdown"]
     assert QUOTE in report["report_markdown"]
-    assert len(requests) == 4
+    stages = [json.loads(item["messages"][1]["content"])["stage"] for item in requests]
+    assert sorted(stages) == ["extraction", "individual", "reference", "set"]
     data = next(
         json.loads(item["messages"][1]["content"])
         for item in requests
@@ -1315,7 +1415,8 @@ def test_cli_reference_manifest_relative_to_its_file(tmp_path, monkeypatch):
         == "chroma_hybrid_local_features"
     )
     assert (tmp_path / "chroma").is_dir()
-    assert len(requests) == 4
+    assert report["passport"]["review_mode"] == "legacy"
+    assert sum(json.loads(item["messages"][1]["content"])["stage"] == "reference" for item in requests) == 1
 
 
 def test_reference_input_limits(monkeypatch):

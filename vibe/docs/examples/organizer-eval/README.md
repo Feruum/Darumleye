@@ -10,7 +10,7 @@ The evaluation uses the original Markdown specification and a frozen SHA-256. [g
 
 ## Run the standard model
 
-The new GPT‑6 Luna run is blocked in this checkout because `AGENT_LLM_API_KEY` is unavailable. Configure the WikiVibe endpoint, key and `gpt-6-luna` in `vibe/.env`. The generation call uses the configured provider. Run the commands from the repository root and send only the source Markdown to the model.
+The new GPT‑6 Luna run is blocked in this checkout because `AGENT_LLM_API_KEY` is unavailable. Copy the OpenRouter endpoint and `openai/gpt-6-luna` model from `vibe/.env.example` into `vibe/.env` and set the matching API key. The generation call uses the configured provider. Run the commands from the repository root and send only the source Markdown to the model.
 
 ```bash
 mkdir -p .artifacts/organizer-eval

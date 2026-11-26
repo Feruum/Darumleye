@@ -22,6 +22,11 @@ STAGES = {
     "multi_finalizer": "Финализация экспертных наблюдений",
     "multi_recheck": "Адресная перепроверка",
 }
+TASK_RECOVERY_MESSAGES = {
+    "spec_task_retry": "повтор задачи после временного сбоя провайдера",
+    "spec_task_split": "пакет разделён после ошибки валидации",
+}
+
 for role, label in {
     "logic_inspector": "Эксперт бизнес-логики",
     "scenario_builder": "Эксперт сценариев",
@@ -121,7 +126,9 @@ class ReviewProgress:
             if isinstance(stage_key, str)
             else "AI-анализ"
         )
-        if name == "spec_stage_correction":
+        if name in TASK_RECOVERY_MESSAGES:
+            self.line(f"{stage} — {TASK_RECOVERY_MESSAGES[name]}")
+        elif name == "spec_stage_correction":
             self.line(f"{stage} — ответ требует исправления; выполняется повтор")
             if isinstance(event.get("reason"), str):
                 self.line(f"{stage} — {event['reason']}")
@@ -179,6 +186,8 @@ class ProgressChat:
         self.chat = chat
         self.progress = progress
         self.model_name = chat.model_name
+        self.max_retries = getattr(chat, "max_retries", 0)
+        self.handles_rate_limits = getattr(chat, "handles_rate_limits", False)
 
     async def ainvoke(self, messages, *args, **kwargs):
         try:

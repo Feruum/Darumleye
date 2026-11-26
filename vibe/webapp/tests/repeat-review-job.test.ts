@@ -75,16 +75,16 @@ test('a repeat cancellation that loses the race to successful completion returns
 })
 
 
-test('a historical report with no mode explicitly submits a legacy repeat, not the new default', async () => {
+test.each([undefined, 'legacy', 'multi_agent_direct', 'multi_agent'] as const)('a repeat preserves %s and treats missing metadata as legacy', async mode => {
   const store = createRepeatReviewJobStore('owner', original, storage())
   const transport = { request: async (path: string, _: unknown, options: { method?: string; body?: FormData }) => {
     if (options.method === 'POST') {
-      expect(options.body?.get('review_mode')).toBe('legacy')
+      expect(options.body?.get('review_mode')).toBe(mode ?? 'legacy')
       return { ...job, status: 'completed', review_id: jobId }
     }
     expect(path).toBe(`/api/agent/spec-reviews/${jobId}`)
     return { report }
   } } as unknown as AuthenticatedTransport
-  expect(await submitRepeatReview(store, transport, jobId, file, new AbortController().signal, [], undefined, 0)).toEqual(report)
+  expect(await submitRepeatReview(store, transport, jobId, file, new AbortController().signal, [], mode, 0)).toEqual(report)
   expect(store.read()).toBeUndefined()
 })

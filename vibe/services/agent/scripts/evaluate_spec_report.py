@@ -159,8 +159,9 @@ def evaluate(source_path: Path, report_path: Path, *, official: bool = False,
         all(bool(finding.recommendation.strip()) for finding in report.findings),
     )
     if official:
-        check("Organizer document-only mode", report.reference_review is None)
         check("Original organizer input SHA-256", specification.sha256 == "e7dae55e5453a250d93e335f5ff9c7f775f4457ccddd333f4a67e47b20d74381")
+        if not references:
+            check("Organizer document-only mode", report.reference_review is None)
     decision = report.decision_review
     if decision and decision.status == "completed":
         check(
@@ -169,7 +170,7 @@ def evaluate(source_path: Path, report_path: Path, *, official: bool = False,
             == {f"D-{i:03d}" for i in range(1, len(report.findings) + 1)}
             and len(decision.findings) == len(report.findings),
         )
-    multi_agent = report.passport.review_mode == "multi_agent"
+    multi_agent = report.passport.review_mode in {"multi_agent", "multi_agent_direct"}
     if multi_agent or "readiness_checklist" in raw_report:
         check("All readiness criteria exactly once and in order", [item.id for item in report.readiness_checklist] == list(READINESS_CRITERIA))
         def check_readiness():
@@ -180,7 +181,7 @@ def evaluate(source_path: Path, report_path: Path, *, official: bool = False,
         check("Questions link to verified findings or checklist rows", report.clarification_questions == clarification_questions(report.findings, report.readiness_checklist))
     if multi_agent or "extraction_gaps" in raw_report:
         deterministic_gaps = uncovered_requirement_candidates(specification, report.requirements)
-        if report.passport.review_mode == "multi_agent":
+        if multi_agent:
             check("Explicit extraction candidate audit", all(item in report.extraction_gaps for item in deterministic_gaps))
             def check_gap_evidence():
                 for item in report.extraction_gaps:
@@ -200,9 +201,23 @@ def evaluate(source_path: Path, report_path: Path, *, official: bool = False,
     documents = {ref.source.id: ref.document for ref in references or []}
     reference = report.reference_review
     if reference or documents:
-        expected = {source.id: source.sha256 for source in reference.sources} if reference else {}
+        reported = [(item.id, item.sha256) for item in reference.sources] if reference else []
         check("Selected reference originals match reported hashes",
-              bool(references) and expected == {k: doc.sha256 for k, doc in documents.items()})
+              bool(documents) and reported == [(key, doc.sha256) for key, doc in documents.items()])
+        def source_metadata(source):
+            return source.model_dump(exclude={"summary", "applicability"})
+        check("Reference source register matches selected metadata",
+              bool(reference and references) and [source_metadata(item) for item in reference.sources]
+              == [source_metadata(item.source) for item in references])
+        check("Selected reference comparison completed",
+              reference is not None and reference.status == "completed"
+              and all(source.applicability != "not_reviewed" for source in reference.sources))
+        check("Reference finding IDs and requirement links are valid",
+              reference is not None and all(
+                  item.id == f"RF-{index:03d}" and item.source_id in documents
+                  and len(set(item.requirement_ids)) == len(item.requirement_ids)
+                  and set(item.requirement_ids) <= ids
+                  for index, item in enumerate(reference.observations, 1)))
         def check_reference_evidence():
             for item in reference.observations if reference else []:
                 doc = documents.get(item.source_id)
@@ -218,6 +233,8 @@ def evaluate(source_path: Path, report_path: Path, *, official: bool = False,
         if graph is not None:
             complete = {item.role for item in graph.experts if item.status == "completed"}
             check("All five independent experts completed", {"logic_inspector", "scenario_builder", "gap_hunter", "contract_inspector", "risk_inspector"} <= complete)
+            if documents:
+                check("Selected Reference Inspector completed", "reference_inspector" in complete)
             check("Graph covers the requirement register", {node.requirement_id for node in graph.nodes if node.kind == "requirement"} == ids)
             expected_finding_ids = {f"D-{index:03d}" for index in range(1, len(report.findings) + 1)}
             core_nodes = {node.id: node.finding_id for node in graph.nodes if node.kind == "finding" and node.finding_id in expected_finding_ids}
@@ -277,6 +294,12 @@ def evaluate(source_path: Path, report_path: Path, *, official: bool = False,
         "review_mode": report.passport.review_mode,
         "graph_nodes": len(graph.nodes) if graph else 0,
         "graph_edges": len(graph.edges) if graph else 0,
+        "readiness_checks": len(report.readiness_checklist),
+        "experts_completed": sum(expert.status == "completed" and expert.role != "code_checks"
+                                 for expert in graph.experts) if graph else None,
+        "reference_status": reference.status if reference else None,
+        "reference_sources": len(reference.sources) if reference else 0,
+        "reference_observations": len(reference.observations) if reference else 0,
     }
     return {
         "source": source_path.name,

@@ -14,9 +14,10 @@ from agent.services.spec_reference_review import ReferenceManifestEntry, prepare
 from agent.services.spec_document import Specification
 
 
-async def test_archive_rejects_multi_agent_report_without_evidence_graph():
+@pytest.mark.parametrize("mode", ["multi_agent", "multi_agent_direct"])
+async def test_archive_rejects_multi_agent_report_without_evidence_graph(mode):
     source = Specification("requirements.md", "md", ["REQ-1"])
-    report = SimpleNamespace(model_dump=lambda **_: {"passport": {"review_mode": "multi_agent"}, "evidence_graph": None})
+    report = SimpleNamespace(model_dump=lambda **_: {"passport": {"review_mode": mode}, "evidence_graph": None})
     with pytest.raises(ValueError, match="evidence graph"):
         await ReviewArchive(None).save("owner", source, report)
 

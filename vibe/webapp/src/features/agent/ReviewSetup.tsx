@@ -1,4 +1,4 @@
-import { AGENT_DEFAULT_REVIEW_MODE, type AgentReviewMode } from '@web-app-demo/contracts'
+import { AGENT_DEFAULT_REVIEW_MODE, agentReviewModeLabels, type AgentReviewSubmissionMode } from '@web-app-demo/contracts'
 import {
   ArrowDown01Icon, ArrowRight01Icon, ArrowUp02Icon, BookOpen01Icon, CheckmarkCircle02Icon,
   Clock01Icon, File01Icon, Search01Icon, Tick02Icon,
@@ -17,6 +17,12 @@ import { deriveReviewSteps, formatReviewElapsed, type ReviewPhase } from './revi
 
 const stepLabels = [
   'Документ', 'Настройки', 'Отчёт',
+] as const
+
+const reviewModeOptions = [
+  { mode: 'multi_agent', description: 'Три парных валидатора сверяют выводы экспертов перед общей проверкой.' },
+  { mode: 'multi_agent_direct', description: 'Общий валидатор получает выводы каждого эксперта напрямую.' },
+  { mode: 'legacy', description: 'Модель проверяет требования по отдельности и оценивает весь набор.' },
 ] as const
 
 // Adapted from Skiper UI's free ArrowIcon (Skiper99):
@@ -46,8 +52,8 @@ export function ReviewSteps({ hasFile, phase }: { hasFile: boolean; phase: Revie
 type SetupProps = {
   file?: File
   pendingRecovery?: boolean
-  reviewMode?: AgentReviewMode
-  onReviewModeChange?: (mode: AgentReviewMode) => void
+  reviewMode?: AgentReviewSubmissionMode
+  onReviewModeChange?: (mode: AgentReviewSubmissionMode) => void
   references: ReferenceDraft[]
   fileError?: string
   referenceError?: string
@@ -109,17 +115,19 @@ export function ReviewSetup({
         <details className="sr-mode-disclosure">
           <summary>
             <Typography as="span" variant="bodySmMedium" id={`${inputId}-settings`}>Режим проверки</Typography>
-            <Typography as="span" variant="caption" className="sr-mode-current">{reviewMode === 'multi_agent' ? 'Мультиагентный' : 'Стандартный'}</Typography>
+            <Typography as="span" variant="caption" className="sr-mode-current">{agentReviewModeLabels[reviewMode]}</Typography>
             <HugeiconsIcon icon={ArrowDown01Icon} className="sr-mode-chevron" size={16} aria-hidden />
           </summary>
           <fieldset className="sr-review-mode-options" aria-labelledby={`${inputId}-settings`}>
-            <label><input type="radio" name={`${inputId}-review-mode`} checked={reviewMode === 'multi_agent'} onChange={() => onReviewModeChange?.('multi_agent')} /><span><Typography as="strong" variant="bodySmMedium">Мультиагентный</Typography><Typography as="span" variant="caption">Независимые эксперты и граф доказательств.</Typography></span></label>
-            <label><input type="radio" name={`${inputId}-review-mode`} checked={reviewMode === 'legacy'} onChange={() => onReviewModeChange?.('legacy')} /><span><Typography as="strong" variant="bodySmMedium">Стандартный</Typography><Typography as="span" variant="caption">Базовая проверка требований.</Typography></span></label>
+            {reviewModeOptions.map(({ mode, description }) => <label key={mode}>
+              <input type="radio" name={`${inputId}-review-mode`} value={mode} checked={reviewMode === mode} onChange={() => onReviewModeChange?.(mode)} />
+              <span><Typography as="strong" variant="bodySmMedium">{agentReviewModeLabels[mode]}</Typography><Typography as="span" variant="caption">{description}</Typography></span>
+            </label>)}
           </fieldset>
         </details>
         {file && <ReferenceSourcesInput references={references} disabled={false} onChange={onReferencesChange} onFileError={onReferenceError} />}
         {referenceError && <Alert variant="destructive"><AlertTitle>Проверьте источники</AlertTitle><AlertDescription>{referenceError}</AlertDescription></Alert>}
-          {requestError && <Alert variant="destructive"><AlertTitle>Проверка не завершена</AlertTitle><AlertDescription>{requestError}</AlertDescription>{file && <Button className="sr-error-action" type="button" variant="ghost" size="sm" onClick={() => inputRef.current?.click()}>Выбрать другой документ</Button>}</Alert>}
+        {requestError && <Alert variant="destructive"><AlertTitle>Проверка не завершена</AlertTitle><AlertDescription>{requestError}</AlertDescription>{file && <Button className="sr-error-action" type="button" variant="ghost" size="sm" onClick={() => inputRef.current?.click()}>Выбрать другой документ</Button>}</Alert>}
         {cancelled && <Typography as="p" variant="bodySm" role="status" className="sr-cancel-notice">Ожидание остановлено. Настройки сохранены, проверку можно запустить снова.</Typography>}
         <div className="sr-form-footer">
           <Typography as="small" variant="caption">Документы передаются AI-модели.</Typography>

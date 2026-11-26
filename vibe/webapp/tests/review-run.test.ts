@@ -165,18 +165,18 @@ test('cancellation intent is owner-scoped and survives a reload without retainin
 })
 
 
-test('new reviews default to multi-agent while explicit legacy is fixed during submission', async () => {
+test('new reviews default to multi-agent while direct validation is fixed during submission', async () => {
   const run = createReviewRun()
-  run.setReviewMode('legacy')
+  run.setReviewMode('multi_agent_direct')
   run.setFile(file)
   const result = deferred<AgentSpecReview>()
   let mode: string | undefined
   expect(run.start(input => { mode = input.reviewMode; return result.promise })).toBe(true)
   await Promise.resolve()
-  expect(mode).toBe('legacy')
+  expect(mode).toBe('multi_agent_direct')
   expect(run.setReviewMode('multi_agent')).toBe(false)
   run.cancel()
-  expect(run.getSnapshot().reviewMode).toBe('legacy')
+  expect(run.getSnapshot().reviewMode).toBe('multi_agent_direct')
   expect(run.reset()).toBe(true)
   run.setFile(file)
   run.start(input => { mode = input.reviewMode; return result.promise })
