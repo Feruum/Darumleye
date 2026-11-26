@@ -1,0 +1,10 @@
+case,mode,repetition,status,elapsed_s,failed_stage,failure,http_status,audit_passed,audit_total,requirements,individual_cells,set_checks,readiness_checks,experts_completed,reference_status,reference_observations,findings,findings_with_citations,verdict,matched_defect_themes,annotated_defect_themes,matched_obligations,annotated_obligations,model_calls,reported_input_tokens,reported_output_tokens,usage_complete,cost_usd,reported_cost_usd,task_retries,batch_splits,run_id
+defective,legacy,1,passed,28.088,,,,27,27,6,54,6,15,,completed,1,7,7,not_ready,4,4,6,6,5,7308,8641,True,0.00521185,0.00521185,0,0,b4d30ce0-004a-4431-8d36-af3927a2690a
+defective,multi_agent,1,passed,41.621,,,,38,38,6,54,6,15,6,completed,2,13,13,not_ready,4,4,6,6,16,41814,16862,True,0.013480905,0.013480905,0,0,4890ae87-47c6-4eff-b49a-5c3c47fc6fb1
+defective,multi_agent_direct,1,passed,39.974,,,,38,38,6,54,6,15,6,completed,2,19,19,not_ready,4,4,6,6,13,30671,15710,True,0.009455595,0.009455595,0,0,d9938f6b-cae9-46c9-8d60-b9663959a1cf
+official,legacy,1,passed,74.689,,,,28,28,52,468,6,15,,completed,0,37,37,not_ready,4,6,26,26,17,107551,34528,True,0.030033965,0.030033965,0,0,7e914ed1-1146-4c5c-9769-9bf18a939072
+official,multi_agent,1,passed,175.519,,,,39,39,62,558,6,15,6,completed,0,47,47,not_ready,5,6,25,26,52,368605,74443,True,0.082503175,0.082503175,0,0,6ad07a87-bf13-4ff0-ba58-c5bc1d758974
+official,multi_agent_direct,1,passed,151.052,,,,39,39,55,495,6,15,6,completed,1,44,44,not_ready,5,6,25,26,43,294941,63691,True,0.06590459,0.06590459,0,0,cef0c911-900c-43c7-ba9e-e1bd56a6ecc2
+stress,legacy,1,passed,174.355,,,,27,27,109,981,6,15,,completed,1,96,96,not_ready,,,,,32,189470,89368,True,0.06609801,0.06609801,0,0,682d0c0c-ceb8-4552-aee0-3be66d0004c2
+stress,multi_agent,1,passed,446.987,,,,38,38,107,963,6,15,6,completed,1,226,226,not_ready,,,,,68,430863,142850,False,,0.123112665,3,0,2f05cda9-e5dd-44cb-bf1f-0a2a093efa05
+stress,multi_agent_direct,1,passed,274.421,,,,38,38,107,963,6,15,6,completed,1,229,229,not_ready,,,,,59,371840,134455,True,0.112735235,0.112735235,0,0,949f43a0-9732-4a0a-9dfd-f33aa401d5d6
