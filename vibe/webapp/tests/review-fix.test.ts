@@ -5,6 +5,15 @@ import type { AgentSpecReview } from '@web-app-demo/contracts'
 import { applyReviewEdits, canFixReview, reviewFixErrorMessage, revisedSpecificationFilename } from '../src/features/agent/review-fix'
 import { ReviewFixFindingList } from '../src/features/agent/ReviewFixWorkspace'
 import { ApiRequestError } from '../src/platform/api'
+import { applyDateRuleEdit, checkDateConflict } from '../src/features/agent/date-conflict-demo'
+
+test('rechecks the exact date-example edit for both business decisions', () => {
+  expect(checkDateConflict()).toEqual({ ruleMonth: 'Январь', exampleMonth: 'Февраль', hasConflict: true })
+  expect(checkDateConflict(applyDateRuleEdit('purchase'))).toEqual({ ruleMonth: 'Январь', exampleMonth: 'Январь', hasConflict: false })
+  const revised = applyDateRuleEdit('posting')
+  expect(checkDateConflict(revised)).toEqual({ ruleMonth: 'Февраль', exampleMonth: 'Февраль', hasConflict: false })
+  expect(checkDateConflict(revised.replace('Февральский счётчик вырос', 'Январский счётчик вырос')).hasConflict).toBe(true)
+})
 
 test('applies approved changes against the original, without changing its source units', () => {
   const units = ['# Requirements', 'The search is fast; the table is readable.', 'Keep this.']

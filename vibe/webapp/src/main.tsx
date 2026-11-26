@@ -4,7 +4,6 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { AuthProvider } from '@/features/auth'
 import App from './App'
 import './production.css'
 
@@ -27,9 +26,7 @@ createRoot(document.getElementById('root')!).render(
           enableSystem
           storageKey="web_app_demo_theme"
         >
-          <AuthProvider>
-            <App />
-          </AuthProvider>
+          <App />
         </ThemeProvider>
       </TooltipProvider>
     </QueryClientProvider>
