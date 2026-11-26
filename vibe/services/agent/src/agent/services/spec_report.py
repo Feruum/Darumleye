@@ -4,6 +4,8 @@ import html
 import re
 from typing import TYPE_CHECKING
 
+from agent.services.spec_review_mode import REVIEW_MODE_LABELS
+
 if TYPE_CHECKING:
     from agent.services.spec_review import Evidence, ReviewReport
 
@@ -110,7 +112,7 @@ def render_markdown(report: "ReviewReport") -> str:
         f"- Дата и время: {safe_text(p.run_at)}",
         f"- Модель: {safe_text(p.model)}",
         f"- Версия агента: {safe_text(p.agent_version)}",
-        *(["- Режим: мультиагентное ревью (Evidence-Driven)"] if getattr(p, "review_mode", "legacy") == "multi_agent" else []),
+        f"- Режим: {REVIEW_MODE_LABELS[getattr(p, 'review_mode', 'legacy')]}",
         *([f"- ID запуска: `{p.run_id}`"] if p.run_id else []),
         *([f"- SHA-256 ТЗ: `{p.document_sha256}`"] if p.document_sha256 else []),
         "- Метод: статический анализ качества требований на основе характеристик ISO/IEC/IEEE 29148.",

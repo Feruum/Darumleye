@@ -28,7 +28,7 @@ from test_spec_review import (
     configure_provider,
     payloads,
     reference_manifest,
-    reference_payload, REFERENCE_QUOTE,
+    reference_payload, REFERENCE_QUOTE, expert_reply,
 )
 
 JOBS = "/api/v1/spec-review-jobs"
@@ -119,7 +119,36 @@ def test_review_upload_persists_selected_mode_and_restores_old_payload():
         review_route.ReviewUpload.restore(job)
 
 
-async def test_multi_agent_job_reports_graph_and_first_admission_mode(job_client, monkeypatch):
+@pytest.mark.parametrize("saved_mode", [None, "legacy"])
+async def test_stored_legacy_job_finishes_with_its_original_pipeline(
+    job_client, job_sessions, monkeypatch, saved_mode
+):
+    calls = []
+    configure_provider(monkeypatch, payloads(), calls)
+    identifier = str(uuid4())
+    upload = review_route.ReviewUpload("requirements.txt", "text/plain", TEXT.encode(), [], [])
+    metadata, primary, references = upload.storage()
+    if saved_mode is None:
+        metadata.pop("review_mode")
+    else:
+        metadata["review_mode"] = saved_mode
+    jobs = review_route.review_jobs(app, job_sessions)
+    await jobs.admit(HEADERS["X-User-ID"], identifier, upload.filename, metadata, primary, references)
+    await review_route.start_review_jobs(app, job_sessions)
+
+    assert (await wait_for_terminal(job_client, identifier))["status"] == "completed"
+    report = (await job_client.get(f"{ARCHIVE}/{identifier}", headers=HEADERS)).json()["report"]
+    assert report["passport"]["review_mode"] == "legacy"
+    assert not report.get("evidence_graph")
+    assert {json.loads(req["messages"][1]["content"])["stage"] for req in calls} == {"extraction", "individual", "set"}
+
+
+@pytest.mark.parametrize(("first", "expected"), [
+    (None, "multi_agent"),
+    ("multi_agent", "multi_agent"),
+    ("multi_agent_direct", "multi_agent_direct"),
+])
+async def test_multi_agent_job_reports_graph_and_first_admission_mode(job_client, monkeypatch, first, expected):
     from test_spec_multi_agent import ExpertChat, SOURCE
 
     model = ExpertChat()
@@ -128,14 +157,14 @@ async def test_multi_agent_job_reports_graph_and_first_admission_mode(job_client
     async def submit_mode(mode):
         return await job_client.post(JOBS, headers=HEADERS, data={"job_id": job_id, **({"review_mode": mode} if mode else {})}, files={"file": ("requirements.txt", SOURCE.encode(), "text/plain")})
 
-    assert (await submit_mode(None)).status_code == 202
-    assert (await submit_mode("legacy")).status_code == 202  # Same UUID cannot replace admitted mode.
+    assert (await submit_mode(first)).status_code == 202
+    assert (await submit_mode("legacy")).status_code == 202  # Original mode is immutable.
     terminal = await wait_for_terminal(job_client, job_id)
     assert terminal["status"] == "completed", terminal
     response = await job_client.get(f"{ARCHIVE}/{job_id}", headers=HEADERS)
     assert response.status_code == 200
     report = response.json()["report"]
-    assert report["passport"]["review_mode"] == "multi_agent"
+    assert report["passport"]["review_mode"] == expected
     assert report["evidence_graph"]["nodes"]
     assert report["passport"]["run_id"] == job_id
     assert response.json()["source_units"] == SOURCE.splitlines()
@@ -166,7 +195,8 @@ def restart_provider(monkeypatch, *, pause_after_extraction=False):
 
     async def handle(request):
         body = json.loads(request.content)
-        stage = json.loads(body["messages"][1]["content"])["stage"]
+        data = json.loads(body["messages"][1]["content"])
+        stage = data["stage"]
         calls.append(stage)
         if pause_after_extraction and stage != "extraction":
             after_extraction.set()
@@ -184,7 +214,7 @@ def restart_provider(monkeypatch, *, pause_after_extraction=False):
                         "finish_reason": "stop",
                         "message": {
                             "role": "assistant",
-                            "content": json.dumps(replies[stage], ensure_ascii=False),
+                            "content": json.dumps(expert_reply(data, replies["individual"]["findings"]) if stage.startswith("multi_") else replies[stage], ensure_ascii=False),
                         },
                     }
                 ],
@@ -610,7 +640,9 @@ async def test_durable_completion_archives_full_reference_and_reopens_exact_lega
     assert "reference_source_units" not in detail.json()
     assert detail.json()["report"]["reference_review"]["observations"][0]["reference_evidence"][0]["quote"] == REFERENCE_QUOTE
     calls_after_review = len(calls)
-    assert calls_after_review == 4
+    assert detail.json()["report"]["passport"]["review_mode"] == "legacy"
+    stages = [json.loads(req["messages"][1]["content"])["stage"] for req in calls]
+    assert sorted(stages) == ["extraction", "individual", "reference", "set"]
     path = f"{ARCHIVE}/{job_id}/references/S-001"
     result = await job_client.get(path, headers=HEADERS)
     assert result.status_code == 200, result.text

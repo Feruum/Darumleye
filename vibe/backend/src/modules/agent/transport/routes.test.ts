@@ -303,23 +303,19 @@ test('review mode is validated and forwarded only for specification reviews', as
     form.set('review_mode', mode)
     return form
   }
-  expect((await app.request('/api/agent/spec-reviews', { method: 'POST', headers, body: upload('multi_agent') })).status).toBe(200)
-  expect(requests[0]?.get('review_mode')).toBe('multi_agent')
-  const job = upload('multi_agent')
-  job.set('job_id', '0196f6f8-6600-7000-8000-000000000001')
-  expect((await app.request('/api/agent/spec-review-jobs', { method: 'POST', headers, body: job })).status).toBe(200)
-  expect(requests[1]?.get('review_mode')).toBe('multi_agent')
-  expect((await app.request('/api/agent/spec-reviews', { method: 'POST', headers, body: upload('legacy') })).status).toBe(200)
-  expect(requests[2]?.get('review_mode')).toBe('legacy')
-  const legacyJob = upload('legacy')
-  legacyJob.set('job_id', '0196f6f8-6600-7000-8000-000000000001')
-  expect((await app.request('/api/agent/spec-review-jobs', { method: 'POST', headers, body: legacyJob })).status).toBe(200)
-  expect(requests[3]?.get('review_mode')).toBe('legacy')
+  for (const input of ['legacy', 'multi_agent', 'multi_agent_direct']) {
+    expect((await app.request('/api/agent/spec-reviews', { method: 'POST', headers, body: upload(input) })).status).toBe(200)
+    expect(requests.at(-1)?.get('review_mode')).toBe(input)
+    const job = upload(input)
+    job.set('job_id', '0196f6f8-6600-7000-8000-000000000001')
+    expect((await app.request('/api/agent/spec-review-jobs', { method: 'POST', headers, body: job })).status).toBe(200)
+    expect(requests.at(-1)?.get('review_mode')).toBe(input)
+  }
   expect((await app.request('/api/agent/spec-reviews', { method: 'POST', headers, body: upload('invalid') })).status).toBe(400)
   const duplicate = upload('legacy')
   duplicate.append('review_mode', 'multi_agent')
   expect((await app.request('/api/agent/spec-reviews', { method: 'POST', headers, body: duplicate })).status).toBe(400)
-  expect(requests).toHaveLength(4)
+  expect(requests).toHaveLength(6)
 })
 
 test('review jobs relay only authenticated upload and job ID, then poll and cancel by UUID', async () => {

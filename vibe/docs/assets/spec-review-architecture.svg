@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="762" viewBox="0 0 1280 762" role="img" aria-labelledby="title desc">
+  <title id="title">Spec Review — application architecture</title>
+  <desc id="desc">The public website links to the React workspace, which calls the authenticated Bun and Hono API. The API accesses PostgreSQL and proxies requests to the Python and FastAPI AI service. The service runs LangGraph paired or direct review, accesses its own database and Chroma, and calls configurable model providers. The standalone CLI runs the document review without the web stack.</desc>
+  <defs>
+    <linearGradient id="canvas" x2="1" y2="1">
+      <stop stop-color="#F9F8FF"/>
+      <stop offset="1" stop-color="#EFF0FC"/>
+    </linearGradient>
+    <linearGradient id="accent" x2="1" y2="1">
+      <stop stop-color="#7530D8"/>
+      <stop offset="1" stop-color="#8934F9"/>
+    </linearGradient>
+    <linearGradient id="glass" x2="0" y2="1">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F9F7FF"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0L8 4L0 8Z" fill="#8934F9"/>
+    </marker>
+    <style>
+      text {font-family: Inter, 'Segoe UI', 'DejaVu Sans', sans-serif; fill: #19171E;}
+      .eyebrow {font-size: 13px; font-weight: 700; letter-spacing: 1.8px; fill: #6930BE;}
+      .heading {font-size: 24px; font-weight: 700; letter-spacing: -.5px;}
+      .body {font-size: 17px; fill: #514A60;}
+      .small {font-size: 14px; fill: #625971;}
+      .card {fill: url(#glass); stroke: #DAD5E9; stroke-width: 1.5;}
+      .flow {fill: none; stroke: #8934F9; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow);}
+      .optional {stroke-dasharray: 5 5;}
+    </style>
+  </defs>
+  <rect width="1280" height="762" rx="28" fill="url(#canvas)"/>
+  <path d="M0 102H1280" stroke="#E0D9F0"/>
+  <g transform="translate(40 31)">
+    <rect width="46" height="46" rx="14" fill="url(#accent)"/>
+    <path d="M13 12h15l5 5v18H13zM28 12v6h5" fill="none" stroke="white" stroke-width="2" stroke-linejoin="round"/>
+    <path d="m18 26 4 4 8-10" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="62" y="25" font-size="32" font-weight="700" letter-spacing="-1.4">spec review</text>
+    <text x="64" y="46" class="small">Evidence-based requirements validation</text>
+  </g>
+  <rect x="921" y="36" width="319" height="32" rx="16" fill="#E9E1FC"/>
+  <text x="1080.5" y="57" text-anchor="middle" class="eyebrow" letter-spacing="1">BCC HUB × MNU FINTECH</text>
+
+  <!-- Browser applications and the shared source packages. -->
+  <rect x="40" y="132" width="280" height="116" rx="20" class="card"/>
+  <text x="60" y="159" class="eyebrow">PUBLIC SITE</text>
+  <text x="60" y="188" class="heading">Website</text>
+  <text x="60" y="213" class="body">React 19 · Vite 8 · Three.js</text>
+  <text x="60" y="233" class="small">Pre-rendered landing page</text>
+
+  <rect x="360" y="132" width="560" height="116" rx="20" class="card"/>
+  <text x="380" y="159" class="eyebrow">MAIN FRONTEND / WEBAPP</text>
+  <text x="380" y="188" class="heading">Review workspace</text>
+  <text x="380" y="213" class="body">React 19 · Vite 8 · TanStack · Tailwind 4</text>
+  <text x="380" y="233" class="small">Dashboard · review · evidence graph · report · chat</text>
+  <path d="M320 190H358" class="flow"/>
+
+  <rect x="960" y="132" width="280" height="116" rx="20" class="card"/>
+  <text x="980" y="159" class="eyebrow">SHARED PACKAGES &amp; UI</text>
+  <text x="980" y="188" class="heading">Design &amp; contracts</text>
+  <text x="980" y="213" class="body">Arc Free · assistant-ui · Zod</text>
+  <text x="980" y="233" class="small">Motion · Blobatar mascot</text>
+
+  <!-- Application API and independent standalone entry point. -->
+  <path d="M640 248V290" class="flow"/>
+  <text x="655" y="273" class="small">HTTP / SSE</text>
+  <rect x="360" y="292" width="560" height="118" rx="20" class="card"/>
+  <text x="380" y="319" class="eyebrow">AUTHENTICATED API</text>
+  <text x="380" y="348" class="heading">Bun 1.4 · Hono 4</text>
+  <text x="380" y="374" class="body">Sessions · Zod · Drizzle ORM</text>
+  <text x="380" y="396" class="small">Agent proxy · Croner · PostgreSQL outbox</text>
+
+  <rect x="960" y="292" width="280" height="118" rx="20" class="card"/>
+  <text x="980" y="319" class="eyebrow">RELATIONAL DATA</text>
+  <text x="980" y="348" class="heading">PostgreSQL 18</text>
+  <text x="980" y="374" class="body">Drizzle · SQLAlchemy</text>
+  <text x="980" y="396" class="small">App + agent databases</text>
+  <path d="M920 339H958" class="flow"/>
+
+  <g>
+    <text x="40" y="313" class="eyebrow">TWO ENTRY POINTS</text>
+    <text x="40" y="342" font-size="20" font-weight="700">Web or standalone.</text>
+    <text x="40" y="369" class="body">Document-only CLI runs</text>
+    <text x="40" y="391" class="body">without the web stack.</text>
+  </g>
+
+  <!-- Internal model orchestration. -->
+  <path d="M640 410V455" class="flow"/>
+  <text x="655" y="438" class="small">Internal API</text>
+  <rect x="360" y="457" width="560" height="229" rx="22" fill="url(#accent)"/>
+  <text x="380" y="484" font-size="13" font-weight="700" letter-spacing="1.8" style="fill:#F0E8FF">AI SERVICE / SHARED REVIEW ENGINE</text>
+  <text x="380" y="515" font-size="28" font-weight="700" style="fill:#FFFFFF">Python 3.12+ · FastAPI</text>
+  <text x="380" y="540" font-size="16" style="fill:#F3EDFF">LangGraph · LangChain · OCR · classic and multi-agent review</text>
+  <rect x="376" y="553" width="528" height="117" rx="14" fill="#FFFFFF" fill-opacity=".96"/>
+  <text x="394" y="578" font-size="17" font-weight="700">Multi-agent: extraction → five independent experts</text>
+  <rect x="394" y="590" width="245" height="25" rx="12.5" fill="#E9DEFD"/>
+  <text x="516.5" y="607" text-anchor="middle" font-size="14" font-weight="700" style="fill:#5023A2">Paired validation · default</text>
+  <rect x="649" y="590" width="236" height="25" rx="12.5" fill="#F1EDF7"/>
+  <text x="767" y="607" text-anchor="middle" font-size="14" font-weight="600">Direct validation</text>
+  <text x="394" y="638" font-size="17" font-weight="600">Global validator → Evidence Graph → Finalizer</text>
+  <text x="394" y="658" class="small">Code-based verdict · report archive · review chat</text>
+
+  <rect x="40" y="457" width="280" height="102" rx="20" class="card"/>
+  <text x="60" y="484" class="eyebrow">DOCUMENT-ONLY CLI</text>
+  <text x="60" y="515" class="heading">Python · uv</text>
+  <text x="60" y="539" class="body">Markdown / JSON report</text>
+  <path d="M320 510H358" class="flow"/>
+
+  <rect x="40" y="584" width="280" height="102" rx="20" class="card"/>
+  <text x="60" y="611" class="eyebrow">OPTIONAL TELEMETRY</text>
+  <text x="60" y="641" class="heading">Langfuse</text>
+  <text x="60" y="665" class="body">OpenTelemetry · traces</text>
+  <path d="M360 635H322" class="flow optional"/>
+
+  <rect x="960" y="457" width="280" height="102" rx="20" class="card"/>
+  <text x="980" y="484" class="eyebrow">RETRIEVAL &amp; FILES</text>
+  <text x="980" y="515" class="heading">ChromaDB</text>
+  <text x="980" y="539" class="body">Hybrid RAG · local uploads</text>
+  <path d="M920 510H958" class="flow"/>
+  <path d="M920 475H936V380H958" class="flow"/>
+
+  <rect x="960" y="584" width="280" height="102" rx="20" class="card"/>
+  <text x="980" y="611" class="eyebrow">MODEL PROVIDERS</text>
+  <text x="980" y="641" class="heading">GPT-6 Luna</text>
+  <text x="980" y="665" class="body">WikiVibe · optional Drex</text>
+  <path d="M920 635H958" class="flow"/>
+
+  <path d="M40 710H1240" stroke="#DAD5E9"/>
+  <text x="40" y="738" font-size="15" font-weight="600" style="fill:#514A60">LOCAL DEVELOPMENT</text>
+  <text x="238" y="738" font-size="15" style="fill:#514A60">Bun workspaces · Turborepo · Docker Compose · uv</text>
+  <text x="1240" y="738" text-anchor="end" font-size="15" style="fill:#514A60">Configurable OpenAI-compatible API</text>
+</svg>

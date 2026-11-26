@@ -1,6 +1,7 @@
 import {
   AGENT_DOCUMENT_MAX_BYTES,
   AGENT_DEFAULT_REVIEW_MODE,
+  agentReviewSubmissionModeSchema,
   AGENT_REFERENCE_MAX_BYTES,
   AGENT_REFERENCE_MAX_FILES,
   AGENT_REFERENCE_TOTAL_MAX_BYTES,
@@ -172,10 +173,11 @@ export function createAgentRoutes(options: {
       if (review) {
         appendReviewReferences(incoming, outgoing)
         const modes = incoming.getAll('review_mode')
-        if (modes.length > 1 || (modes.length === 1 && modes[0] !== 'legacy' && modes[0] !== 'multi_agent')) {
+        const mode = agentReviewSubmissionModeSchema.safeParse(modes[0] ?? AGENT_DEFAULT_REVIEW_MODE)
+        if (modes.length > 1 || !mode.success) {
           throw new AppError(400, 'BAD_REQUEST', 'Invalid review mode')
         }
-        outgoing.set('review_mode', modes[0] === 'legacy' || modes[0] === 'multi_agent' ? modes[0] : AGENT_DEFAULT_REVIEW_MODE)
+        outgoing.set('review_mode', mode.data)
       }
       if (job) {
         const supplied = incoming.getAll('job_id')

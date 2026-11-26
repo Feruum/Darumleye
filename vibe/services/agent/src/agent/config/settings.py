@@ -1,6 +1,7 @@
 """Configuration for the local, Bun-proxied agent service."""
 
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -21,6 +22,7 @@ class Settings(BaseSettings):
     spec_review_timeout_seconds: int = Field(default=230, ge=30, le=240)
     spec_review_large_timeout_seconds: int = Field(default=900, ge=30, le=900)
     spec_review_concurrency: int = Field(default=3, ge=1, le=3)
+    spec_review_reasoning_effort: Literal["auto", "low", "medium"] = "auto"
     spec_review_use_nace: bool = False
     max_history_messages: int = 15
 
@@ -109,6 +111,24 @@ class Settings(BaseSettings):
         if self.ingestion_max_file_bytes < 1:
             raise ValueError("ingestion_max_file_bytes must be positive")
         return self
+
+    @property
+    def uses_openrouter(self) -> bool:
+        endpoint = urlsplit(self.llm_base_url)
+        return endpoint.scheme == "https" and endpoint.hostname == "openrouter.ai"
+
+    def chat_temperature(self, model: str, temperature: float) -> float | None:
+        # OpenRouter's Luna endpoint accepts reasoning effort but not temperature.
+        if self.uses_openrouter and model.rsplit("/", 1)[-1].lower() == "gpt-6-luna":
+            return None
+        return temperature
+
+    @property
+    def spec_review_checkpoint_provider(self) -> str:
+        if self.spec_review_reasoning_effort == "auto":
+            return self.llm_base_url
+        # Isolate run identities, validated stages and split hints from earlier profiles.
+        return f"{self.llm_base_url}|review-effort={self.spec_review_reasoning_effort}"
 
     def get_available_models(self) -> list[str]:
         return [self.llm_model] if self.llm_model else []

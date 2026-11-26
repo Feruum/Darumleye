@@ -1,8 +1,8 @@
-import { AGENT_DEFAULT_REVIEW_MODE, type AgentReviewJob, type AgentReviewMode, type AgentSpecReview } from '@web-app-demo/contracts'
+import { AGENT_DEFAULT_REVIEW_MODE, type AgentReviewJob, type AgentReviewSubmissionMode, type AgentSpecReview } from '@web-app-demo/contracts'
 import type { ReferenceDraft } from './reference-sources'
 
-type ReviewDraft = { file?: File; filename?: string; references: ReferenceDraft[]; reviewMode?: AgentReviewMode }
-type SubmittedReview = { file: File; references: ReferenceDraft[]; startedAt: number; reviewMode: AgentReviewMode }
+type ReviewDraft = { file?: File; filename?: string; references: ReferenceDraft[]; reviewMode?: AgentReviewSubmissionMode }
+type SubmittedReview = { file: File; references: ReferenceDraft[]; startedAt: number; reviewMode: AgentReviewSubmissionMode }
 type ObservedReview = ReviewDraft & { startedAt: number }
 
 export type ReviewRunSnapshot = (ReviewDraft & { status: 'idle' | 'cancelled' })
@@ -129,7 +129,7 @@ export function createReviewRun() {
       publish({ status: 'idle', file: snapshot.file, references: [...references], reviewMode: snapshot.reviewMode })
       return true
     },
-    setReviewMode(reviewMode: AgentReviewMode) {
+    setReviewMode(reviewMode: AgentReviewSubmissionMode) {
       if (active) return false
       publish({ status: 'idle', file: snapshot.file, references: snapshot.references, reviewMode })
       return true

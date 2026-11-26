@@ -16,6 +16,7 @@ import {
   agentMemoryDeletedSchema,
   AGENT_DOCUMENT_MAX_BYTES,
   AGENT_DEFAULT_REVIEW_MODE,
+  agentReviewSubmissionModeSchema,
   AGENT_SPEC_REVIEW_MAX_BYTES,
   AGENT_SPEC_REVIEW_FORMATS,
   type AgentChatRequest,
@@ -93,8 +94,7 @@ export function buildSpecificationReviewFormData(file: File, references: readonl
   if (error) throw new Error(error)
   const body = new FormData()
   body.set('file', file, file.name)
-  // Always send the selected mode; omission is not a valid legacy request anymore.
-  body.set('review_mode', reviewMode)
+  body.set('review_mode', agentReviewSubmissionModeSchema.parse(reviewMode))
   if (references.length) {
     const manifest = agentReferenceManifestSchema.parse(references.map(({ metadata }) => metadata))
     for (const { file: reference } of references) body.append('reference_files', reference, reference.name)

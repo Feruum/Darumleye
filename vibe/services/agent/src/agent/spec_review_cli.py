@@ -31,6 +31,7 @@ from agent.services.spec_review import (
     ReviewReport,
     review_specification_configured,
 )
+from agent.services.spec_review_mode import REVIEW_MODE_LABELS, REVIEW_MODES
 from agent.services.spec_reference_review import ReferenceDocument, load_reference_files
 from agent.services.spec_reference_context import configured_reference_retriever
 from agent.spec_cli_progress import ProgressChat, ReviewProgress, elapsed_label
@@ -71,7 +72,7 @@ def checkpoint_run_id(args: argparse.Namespace, configuration: Settings) -> str 
         return None
     with args.input.open("rb") as document:
         digest = sha256(document.read(MAX_REVIEW_FILE_BYTES + 1)).hexdigest()
-    key = sha256(json.dumps([digest, args.review_mode, configuration.llm_model, configuration.llm_base_url, configuration.spec_review_use_nace, configuration.nace_model], separators=(",", ":")).encode()).hexdigest()
+    key = sha256(json.dumps([digest, args.review_mode, configuration.llm_model, configuration.spec_review_checkpoint_provider, configuration.spec_review_use_nace, configuration.nace_model], separators=(",", ":")).encode()).hexdigest()
     directory = args.checkpoint_dir.resolve()
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     path = directory / f".session-{key}"
@@ -157,7 +158,7 @@ async def _run_review(args: argparse.Namespace, progress: ReviewProgress, config
         model=configuration.llm_model,
         base_url=configuration.llm_base_url,
         api_key=configuration.llm_api_key,
-        temperature=0,
+        temperature=configuration.chat_temperature(configuration.llm_model, 0),
         timeout=configuration.llm_timeout_seconds,
         max_retries=configuration.llm_max_retries,
     )
@@ -176,7 +177,7 @@ async def _run_review(args: argparse.Namespace, progress: ReviewProgress, config
     llm = ProgressChat(llm, progress)
     checkpoint = (
         StageCheckpoint(
-            args.checkpoint_dir, provider_identity=configuration.llm_base_url
+            args.checkpoint_dir, provider_identity=configuration.spec_review_checkpoint_provider
         )
         if args.checkpoint_dir
         else None
@@ -256,11 +257,10 @@ def print_summary(report: ReviewReport, path: Path, seconds: float, *, stream) -
         f"  Модель:                  {terminal_text(report.passport.model)}",
         file=stream,
     )
-    if report.passport.review_mode == "multi_agent":
-        print("  Режим:                   мультиагентный", file=stream)
-        if graph := report.evidence_graph:
-            print(f"  Граф доказательств:      {len(graph.nodes)} узлов / {len(graph.edges)} связей", file=stream)
-            print(f"  Спорных выводов:         {graph.unresolved_count}", file=stream)
+    print(f"  Режим:                   {REVIEW_MODE_LABELS[report.passport.review_mode]}", file=stream)
+    if graph := report.evidence_graph:
+        print(f"  Граф доказательств:      {len(graph.nodes)} узлов / {len(graph.edges)} связей", file=stream)
+        print(f"  Спорных выводов:         {graph.unresolved_count}", file=stream)
     if report.unreadable_pages:
         print(f"  Нечитаемых страниц PDF:  {len(report.unreadable_pages)}", file=stream)
     if getattr(report, "unreadable_units", []):
@@ -362,9 +362,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--review-mode",
-        choices=("legacy", "multi_agent"),
+        choices=REVIEW_MODES,
         default="multi_agent",
-        help="Режим анализа: обычный или независимое мультиагентное ревью",
+        help="Legacy, парная валидация (по умолчанию) или прямая валидация",
     )
     parser.add_argument("--metrics-output", type=Path, help="Отдельный JSON с наблюдаемыми метриками генерации")
     parser.add_argument("--run-id", type=UUID, help="UUID логического прогона для связи повторных попыток (в том числе проверок с регламентами)")

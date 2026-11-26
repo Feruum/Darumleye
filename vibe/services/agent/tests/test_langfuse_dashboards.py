@@ -71,7 +71,7 @@ def test_model_evaluation_compares_modes_models_and_selected_prompt_hashes():
         if widget["dimensions"] == [{"field": "providedModelName"}]
     ]
     assert model_widgets
-    for mode in ("legacy", "multi_agent"):
+    for mode in ("legacy", "multi_agent", "multi_agent_direct"):
         scoped = [
             widget
             for widget in model_widgets
@@ -188,7 +188,7 @@ def test_apply_is_idempotent_and_preserves_edited_board_and_widget():
         initial_placements = list(evaluation["definition"]["widgets"])
         provision.apply_dashboards(client, ["a" * 64])
         assert len(boards) == 5
-        assert len(widgets) == base_widget_count + 6
+        assert len(widgets) == base_widget_count + 9
         assert (
             evaluation["definition"]["widgets"][: len(initial_placements)]
             == initial_placements
@@ -234,7 +234,7 @@ def test_dry_run_never_constructs_api_client(monkeypatch, capsys):
     selected = json.loads(capsys.readouterr().out)
     assert (
         sum(len(board["widgets"]) for board in selected)
-        == sum(len(board["widgets"]) for board in data) + 6
+        == sum(len(board["widgets"]) for board in data) + 9
     )
     with pytest.raises(SystemExit):
         provision.main(["--prompt-version", "not-a-hash", "--apply"])

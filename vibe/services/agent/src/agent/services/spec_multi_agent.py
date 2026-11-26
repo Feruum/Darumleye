@@ -11,7 +11,7 @@ import json
 import operator
 import re
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from itertools import combinations
 from typing import Annotated, Literal, TypedDict
@@ -22,13 +22,15 @@ from langgraph.types import Send
 from pydantic import Field
 
 from agent.services.spec_document import Specification, normalize_quote
+from agent.services.spec_stage_retry import is_transient_provider_error
+from agent.services.spec_eval_checkpoint import individual_split_marker
 from agent.services.spec_evidence_graph import (
     EvidenceGraph, ExpertSummary, GraphEdge, GraphEvidence, GraphNode, Role,
 )
 from agent.services.spec_review import (
     COMMON, FINDINGS, INDIVIDUAL_CRITERIA, READINESS_CRITERIA, READINESS_PROMPT,
     SET_CRITERIA, SEVERITY_ORDER, Check, Evidence, Finding, IndividualDraft,
-    Passport, ReadinessCheck, Requirement, ReviewPipelineError, ReviewReport,
+    Passport, ReadinessCheck, Requirement, ReviewPipelineError, ReviewProviderRateLimit, ReviewReport,
     SetCheck, SetDraft, StructuredReview, _correction_reason,
     anchor_missing_finding, apply_code_set_checks, checked_readiness, clarification_questions,
     compare_references, extract_requirements, invoke_stage, ordered_checks,
@@ -204,6 +206,13 @@ class ExpertResult:
     reference: ReferenceReview | None = None
 
 
+@dataclass(frozen=True)
+class FailedExpertTask:
+    key: str
+    category: Literal["validation", "rate_limited", "provider_unavailable"]
+    reason: str | None = None
+
+
 @dataclass
 class Observation:
     id: str
@@ -235,9 +244,6 @@ class PairResult:
     index: int
     groups: list[Group]
     fallback: bool = False
-    reference: ReferenceReview | None = None
-    reference_links: list[tuple[str, str]] = field(default_factory=list)
-    coverage_cards: list[dict] = field(default_factory=list)
     highlight_ids: list[str] = field(default_factory=list)
     attention_roles: list[Role] = field(default_factory=list)
 
@@ -283,7 +289,11 @@ class ReviewState(TypedDict, total=False):
     requirements: list[Requirement]
     tasks: list[ExpertTask]
     results: Annotated[list[ExpertResult], operator.add]
+    failed_tasks: Annotated[list[FailedExpertTask], operator.add]
     pairs: Annotated[list[PairResult], operator.add]
+    observations: list[Observation]
+    coverage_cards: list[dict]
+    reference_cards: list[dict]
     groups: list[Group]
     disputes: list[Dispute]
     group_conflicts: list[GroupConflict]
@@ -460,13 +470,13 @@ def materialize_evidence_index(specification: Specification, requirements: list[
     return ValidatedEvidenceIndex(tuple(groups), anchors, links)
 
 
-def pair_coverage_cards(pair: tuple[Role, ...], tasks: list[ExpertTask], results: list[ExpertResult]) -> list[dict]:
-    """Only the responsible pair's validated counts, including explicit opt-out."""
+def expert_coverage_cards(tasks: list[ExpertTask], results: list[ExpertResult], reference: ReferenceReview | None) -> list[dict]:
+    """Count validated outputs for each independent role, including optional reference review."""
     cards = []
-    for role in pair:
+    for role in (*EXPERT_BY_ROLE, "reference_inspector"):
         planned = [task for task in tasks if task.role == role]
         returned = [item for item in results if item.role == role]
-        reference = next((item.reference for item in returned if item.reference is not None), None)
+        role_reference = reference if role == "reference_inspector" else None
         individual = [check for item in returned for checks in item.individual.values() for check in checks]
         set_checks = [check for item in returned for check in item.set_checks]
         readiness = [check for item in returned for check in item.readiness]
@@ -474,12 +484,12 @@ def pair_coverage_cards(pair: tuple[Role, ...], tasks: list[ExpertTask], results
             return dict(Counter(row.status for row in rows))
         cards.append({
             "role":role,
-            "status":reference.status if reference is not None else ("completed" if returned else "skipped"),
+            "status":role_reference.status if role_reference is not None else ("completed" if returned else "skipped"),
             "planned_tasks":len(planned), "completed_tasks":len(returned),
             "individual_cells":counts(individual), "set_cells":counts(set_checks),
             "readiness_cells":counts(readiness),
             "scoped_review":any(task.scope is not None for task in planned),
-            "validated_observations":sum(len(item.findings) for item in returned) + (len(reference.observations) if reference else 0),
+            "validated_observations":sum(len(item.findings) for item in returned) + (len(role_reference.observations) if role_reference else 0),
             "extraction_gap_candidates":sum(len(item.extraction_gaps) for item in returned),
         })
     return cards
@@ -1205,9 +1215,13 @@ async def review_multi_agent(
     specification: Specification, llm, *, run_id: str, deadline: float | None,
     verifier=None, references=None, reference_retriever_factory=None,
     reference_verifier=None, concurrency=3,
+    review_mode: Literal["multi_agent", "multi_agent_direct"] = "multi_agent",
 ) -> ReviewReport:
     from agent.utils.review_telemetry import review_stage
 
+    if review_mode not in {"multi_agent", "multi_agent_direct"}:
+        raise ValueError("Unknown multi-agent review mode")
+    paired = review_mode == "multi_agent"
     _check_assignments()
     run_at = datetime.now(UTC).isoformat()
     loop = asyncio.get_running_loop()
@@ -1222,7 +1236,9 @@ async def review_multi_agent(
     async def extract(_state):
         with review_stage("requirement-extraction"):
             async with asyncio.timeout_at(expert_deadline):
-                requirements = await extract_requirements(specification, llm, concurrency=min(3, concurrency))
+                requirements = await extract_requirements(
+                    specification, llm, concurrency=min(3, concurrency), deadline=expert_deadline,
+                )
         return {"requirements": requirements}
 
     async def prepare(state):
@@ -1438,37 +1454,64 @@ unassigned capabilities. Use uncertainty if context is insufficient.
                 return ExpertResult(task.key, task.role, set_checks=set_checks, readiness=rows, findings=draft.findings,
                                     counterexamples=draft.counterexamples, extraction_gaps=gaps)
 
-        try:
-            async with asyncio.timeout_at(expert_deadline):
-                async with gate:
-                    return await validated_retry(stage, instructions, attempt)
-        except ValueError as error:
-            if task.phase == "individual" and len(task.requirements) > 1 and _correction_reason(error) == "The model response was interrupted":
-                half = len(task.requirements) // 2
-                split_tasks = [
-                    asyncio.create_task(expert_call(ExpertTask(f"{task.key}:{index}", task.role, task.phase, items,
-                                                             large_review=task.large_review)))
-                    for index, items in enumerate((task.requirements[:half], task.requirements[half:]))
-                ]
-                try:
-                    subresults = await asyncio.gather(*split_tasks)
-                except BaseException:
-                    for split in split_tasks:
-                        split.cancel()
-                    await asyncio.gather(*split_tasks, return_exceptions=True)
+        # A local pass cannot establish a property of the entire set. Only
+        # individual checks can be partitioned by their assigned requirement IDs.
+        can_split = task.phase == "individual" and len(task.requirements) > 1
+        marker = individual_split_marker(getattr(llm, "model_name", None), stage, instructions,
+                                         payload, ExpertIndividualDraft) if can_split else None
+        if marker is None or not marker.is_file():
+            try:
+                return await validated_retry(stage, instructions, attempt, gate=gate, deadline=expert_deadline)
+            except ValueError as error:
+                if not can_split or _correction_reason(error) is None:
                     raise
-                combined = ExpertResult(task.key, task.role)
-                for result in subresults:
-                    combined.individual.update(result.individual)
-                    combined.counterexamples.extend(item.model_copy(update={"finding_index": item.finding_index + len(combined.findings)}) for item in result.counterexamples)
-                    combined.findings.extend(result.findings)
-                return combined
-            raise
+                if marker is not None:
+                    marker.touch(mode=0o600)
+                logger.warning("spec_task_split", stage=stage)
+
+        half = len(task.requirements) // 2
+        children = [
+            replace(task, key=f"{task.key}:{index}", requirements=batch)
+            for index, batch in enumerate((task.requirements[:half], task.requirements[half:]))
+        ]
+        # A failed child must not cancel a still-validating sibling. Both retain
+        # the original deadline. Parent cancellation propagates through gather.
+        outcomes = await asyncio.gather(*(expert_call(child) for child in children), return_exceptions=True)
+        failures = [outcome for outcome in outcomes if isinstance(outcome, BaseException)]
+        if failures:
+            raise next((error for error in failures if not is_transient_provider_error(error)), failures[0])
+        validate_task_coverage(children, outcomes)
+        combined = ExpertResult(task.key, task.role)
+        for result in outcomes:
+            combined.individual.update(result.individual)
+            offset = len(combined.findings)
+            combined.counterexamples.extend(
+                example.model_copy(update={"finding_index": offset + example.finding_index})
+                for example in result.counterexamples
+            )
+            combined.findings.extend(result.findings)
+        return combined
 
     async def run_expert(state):
         task = state["task"]
         with review_stage(task.role.replace("_", "-")) as telemetry:
-            result = await expert_call(task)
+            try:
+                result = await expert_call(task)
+            except ValueError as error:
+                reason = _correction_reason(error)
+                if reason is not None:
+                    failure = FailedExpertTask(task.key, "validation", reason)
+                elif isinstance(error, ReviewPipelineError) and is_transient_provider_error(error):
+                    category = "rate_limited" if isinstance(error, ReviewProviderRateLimit) else "provider_unavailable"
+                    failure = FailedExpertTask(task.key, category)
+                else:
+                    raise
+                # The join fails after independent tasks have checkpointed their results.
+                # Store only program-owned identifiers and allowlisted validation reasons.
+                telemetry.failure(type(error).__name__)
+                logger.warning("spec_task_exhausted", stage=f"multi_{task.role}_{task.phase}",
+                               category=failure.category, reason=failure.reason)
+                return {"failed_tasks": [failure]}
             telemetry.count("observations", len(result.findings))
         return {"results": [result]}
 
@@ -1534,106 +1577,108 @@ Return {"merges":[["O-...","O-..."]],"disagreements":[["O-...","O-..."]],
         try:
             async with asyncio.timeout_at(cap):
                 async with gate:
-                    merged, conflicts, selection = await validated_retry(stage, prompt, attempt, allow_correction=False)
+                    merged, conflicts, selection = await validated_retry(stage, prompt, attempt, allow_correction=False, allow_transient_retry=False)
             return merged, conflicts, selection, limited
         except (ValueError, RuntimeError, TimeoutError) as error:
             logger.warning("spec_multi_consolidation_fallback", stage=stage, error_type=type(error).__name__)
             return groups, [], {}, True
 
+    async def join_experts(state):
+        failures = sorted(state.get("failed_tasks", []), key=lambda failure: failure.key)
+        if failures:
+            details = ", ".join(f"{f.key} ({f.reason or f.category})" for f in failures)
+            if all(f.category == "rate_limited" for f in failures):
+                raise ReviewProviderRateLimit(f"Provider rate limit prevented required expert review: {details}")
+            raise ReviewPipelineError(f"Required expert review could not complete: {details}")
+        results = state["results"]
+        validate_task_coverage(state["tasks"], results)
+        observations = _observations(results)
+        reference = next((item.reference for item in results if item.role == "reference_inspector"), None)
+        links = []
+        fallback = False
+        if reference is not None and reference.status == "completed":
+            by_source = {item.source.id: item.document for item in references}
+            requirement_ids = {item.id for item in state["requirements"]}
+            risks = [item for item in observations if item.role == "risk_inspector"]
+            try:
+                if ({source.id for source in reference.sources} != set(by_source)
+                        or len(reference.sources) != len(by_source)
+                        or len({obs.id for obs in reference.observations}) != len(reference.observations)):
+                    raise ValueError("Invalid reference branch identity")
+                for observation in reference.observations:
+                    if observation.source_id not in by_source or not set(observation.requirement_ids) <= requirement_ids:
+                        raise ValueError("Invalid reference observation identity")
+                    for evidence in observation.specification_evidence:
+                        verify_reference_evidence(specification, evidence)
+                    for evidence in observation.reference_evidence:
+                        verify_reference_evidence(by_source[observation.source_id], evidence)
+                    anchors = {evidence_key(e) for e in observation.specification_evidence}
+                    for risk in risks:
+                        if (set(risk.finding.requirement_ids).intersection(observation.requirement_ids)
+                                or anchors.intersection(evidence_key(e) for e in risk.finding.evidence)):
+                            links.append((risk.id, observation.id))
+            except (ValueError, KeyError):
+                reference = reference_review_unavailable(references, reference.retrieval)
+                links = []
+                fallback = True
+        cards = []
+        if reference is not None and reference.status == "completed":
+            cards = [{
+                "id": obs.id, "source_id": obs.source_id, "issue": obs.issue[:300],
+                "requirement_ids": obs.requirement_ids[:COMPACT_REQUIREMENT_COUNT],
+                "specification_evidence": [{"start": e.start, "end": e.end, "quote": e.quote[:200]} for e in obs.specification_evidence[:2]],
+                "reference_evidence": [{"start": e.start, "end": e.end, "quote": e.quote[:200]} for e in obs.reference_evidence[:2]],
+            } for obs in reference.observations[:8]]
+        return {"observations": observations, "coverage_cards": expert_coverage_cards(state["tasks"], results, reference),
+                "reference": reference, "reference_cards": cards, "reference_links": links, "fallback": fallback}
+
     async def distribute_pairs(state):
-        validate_task_coverage(state["tasks"], state["results"])
-        observations = _observations(state["results"])
-        # Parallel pair reducers share a deadline that preserves a portion
-        # of the remaining review budget for the mandatory central Finalizer.
+        # Reserve part of the remaining budget for the central finalizer.
         now = loop.time()
         pair_deadline = now + max(0.0, optional_deadline-now)*.6
         return [Send("pair_validator", {
                     "pair_index": index,
-                    "observations": [item for item in observations if item.role in pair],
-                    "reference": next((result.reference for result in state["results"]
-                                       if result.role in pair and result.reference), None),
-                    "requirement_ids": {item.id for item in state["requirements"]},
-                    "coverage_cards":pair_coverage_cards(pair,state["tasks"],state["results"]),
-                    "pair_deadline":pair_deadline,
-                })
-                for index, pair in enumerate(PAIRS)]
+                    "observations": [item for item in state["observations"] if item.role in pair],
+                    "reference_cards": state["reference_cards"] if "reference_inspector" in pair else [],
+                    "coverage_cards": [card for card in state["coverage_cards"] if card["role"] in pair],
+                    "pair_deadline": pair_deadline,
+                }) for index, pair in enumerate(PAIRS)]
 
     async def pair_validator(state):
         index = state["pair_index"]
-        # Assign IDs using the immutable, complete result order before filtering,
-        # so local summaries cannot lose identity or duplicate another pair.
         originals = state["observations"]
         groups = merge_exact([Group([obs]) for obs in originals])
-        reference_links = []
         coverage_cards = state["coverage_cards"]
-        reference_cards = []
-        fallback = False
         with review_stage(("pair-logic-scenario", "pair-gap-contract", "pair-risk-reference")[index]) as span:
-            reference = state["reference"]
-            if reference is not None and reference.status == "completed":
-                # Pair 3 audits both sides of reference citations, but the
-                # already deduplicated RF findings stay in their own category.
-                by_source = {item.source.id: item.document for item in references}
-                try:
-                    if ({source.id for source in reference.sources} != set(by_source)
-                            or len(reference.sources) != len(by_source)
-                            or len({obs.id for obs in reference.observations}) != len(reference.observations)):
-                        raise ValueError("Invalid reference branch identity")
-                    for observation in reference.observations:
-                        if observation.source_id not in by_source or not set(observation.requirement_ids) <= state["requirement_ids"]:
-                            raise ValueError("Invalid reference observation identity")
-                        for evidence in observation.specification_evidence:
-                            verify_reference_evidence(specification, evidence)
-                        for evidence in observation.reference_evidence:
-                            verify_reference_evidence(by_source[observation.source_id], evidence)
-                        anchors = {evidence_key(e) for e in observation.specification_evidence}
-                        for risk in originals:
-                            if risk.role == "risk_inspector" and (
-                                set(risk.finding.requirement_ids).intersection(observation.requirement_ids)
-                                or anchors.intersection(evidence_key(e) for e in risk.finding.evidence)
-                            ):
-                                reference_links.append((risk.id, observation.id))
-                except (ValueError, KeyError):
-                    reference = reference_review_unavailable(references, reference.retrieval)
-                    reference_links = []
-                    fallback = True
-                if reference.status=="completed":
-                    reference_cards = [{
-                        "id":obs.id, "source_id":obs.source_id, "issue":obs.issue[:300],
-                        "requirement_ids":obs.requirement_ids[:COMPACT_REQUIREMENT_COUNT],
-                        "specification_evidence":[{"start":e.start,"end":e.end,"quote":e.quote[:200]} for e in obs.specification_evidence[:2]],
-                        "reference_evidence":[{"start":e.start,"end":e.end,"quote":e.quote[:200]} for e in obs.reference_evidence[:2]],
-                    } for obs in reference.observations[:8]]
-                else:
-                    for card in coverage_cards:
-                        if card["role"]=="reference_inspector":
-                            card.update(status="unavailable",validated_observations=0)
             groups, _, selection, reducer_fallback = await consolidate(
                 groups, stage=f"multi_pair_{index+1}",
-                metadata={"coverage_cards":coverage_cards,"reference_cards":reference_cards,
+                metadata={"coverage_cards":coverage_cards,"reference_cards":state["reference_cards"],
                           "reference_cards_are_separate_from_core":True},
                 stage_deadline=state["pair_deadline"],
             )
-            fallback |= reducer_fallback
             span.count("groups", len(groups))
-            span.count("observations", len(originals) + len(reference.observations if reference else []))
+            span.count("observations", sum(card["validated_observations"] for card in coverage_cards))
             span.ids("observation_ids", [item.id for item in originals])
         highlights = selection.get("summary_ids") or [group.id for group in sorted(
             groups,key=lambda item:(SEVERITY_ORDER[item.finding().severity],item.id))[:3]]
-        return {"pairs": [PairResult(index, groups, fallback, reference, reference_links,
-                                     coverage_cards, highlights, selection.get("attention_roles",[]))]}
+        return {"pairs": [PairResult(index, groups, reducer_fallback, highlights, selection.get("attention_roles", []))]}
 
     async def validate_global(state):
         with review_stage("global-evidence-validator") as span:
             requirements = state["requirements"]
             results = state["results"]
-            if sorted(pair.index for pair in state["pairs"]) != list(range(len(PAIRS))):
-                raise ReviewPipelineError("Incomplete paired validator coverage")
-            for pair in state["pairs"]:
-                if any(obs.role not in PAIRS[pair.index] for group in pair.groups for obs in group.observations):
-                    raise ReviewPipelineError("Pair validator mixed unrelated expert results")
-                if pair.reference is not None and "reference_inspector" not in PAIRS[pair.index]:
-                    raise ReviewPipelineError("Reference branch escaped its pair")
+            fallback = state["fallback"]
+            if paired:
+                pairs = sorted(state["pairs"], key=lambda pair: pair.index)
+                if [pair.index for pair in pairs] != list(range(len(PAIRS))):
+                    raise ReviewPipelineError("Incomplete paired validator coverage")
+                for pair in pairs:
+                    if any(obs.role not in PAIRS[pair.index] for group in pair.groups for obs in group.observations):
+                        raise ReviewPipelineError("Pair validator mixed unrelated expert results")
+                expert_groups = [group for pair in pairs for group in pair.groups]
+                fallback |= any(pair.fallback for pair in pairs)
+            else:
+                expert_groups = [Group([obs]) for obs in state["observations"]]
             code_findings = review_code_checks(specification, requirements)
             set_checks, readiness = _aggregate_checks(specification, requirements, results, code_findings)
             if not requirements:
@@ -1644,9 +1689,8 @@ Return {"merges":[["O-...","O-..."]],"disagreements":[["O-...","O-..."]],
                                                  recommendation="Сформулировать и зафиксировать требования.", evidence=[first_readable_evidence(specification)],
                                                  requirement_ids=[], criteria=[SET_CRITERIA[0]]))
             code = [Observation(f"O-code-{index:04d}", "code_checks", item) for index, item in enumerate(code_findings, 1)]
-            groups = merge_exact([*(group for pair in sorted(state["pairs"], key=lambda item: item.index) for group in pair.groups),
-                                  *(Group([item]) for item in code)])
-            original_ids = {item.id for item in _observations(results)}
+            groups = merge_exact([*expert_groups, *(Group([item]) for item in code)])
+            original_ids = {item.id for item in state["observations"]}
             retained = [obs.id for group in groups for obs in group.observations]
             if set(retained) != original_ids.union(item.id for item in code) or len(retained) != len(set(retained)):
                 raise ReviewPipelineError("Invalid observation provenance")
@@ -1668,25 +1712,28 @@ Return {"merges":[["O-...","O-..."]],"disagreements":[["O-...","O-..."]],
             gaps = list({evidence_key(item): item for item in candidates}.values())
             return {"groups": groups, "evidence_index": evidence_index,
                     "set_checks": set_checks, "readiness": readiness,
-                    "extraction_gaps": gaps, "reference": next((pair.reference for pair in state["pairs"] if pair.reference), None),
-                    "reference_links": [link for pair in state["pairs"] for link in pair.reference_links],
-                    "fallback": any(pair.fallback for pair in state["pairs"])}
+                    "extraction_gaps": gaps, "fallback": fallback}
 
     async def finalize(state):
         with review_stage("finalizer"):
             index = state["evidence_index"]
-            mapped = {obs.id:group.id for group in index.groups for obs in group.observations}
-            paired_summaries = [{
-                "pair_index":pair.index+1,"coverage_cards":pair.coverage_cards,
-                "highlight_ids":list(dict.fromkeys(mapped[id_] for id_ in pair.highlight_ids if id_ in mapped)),
-                "attention_roles":pair.attention_roles,"deterministic_fallback":pair.fallback,
-            } for pair in sorted(state["pairs"],key=lambda item:item.index)]
-            preferred_ids = tuple(dict.fromkeys(id_ for pair in paired_summaries for id_ in pair["highlight_ids"]))
+            metadata = {"coverage_cards": state["coverage_cards"]}
+            preferred_ids = ()
+            if paired:
+                mapped = {obs.id: group.id for group in index.groups for obs in group.observations}
+                summaries = [{
+                    "pair_index": pair.index + 1,
+                    "coverage_cards": [card for card in state["coverage_cards"] if card["role"] in PAIRS[pair.index]],
+                    "highlight_ids": list(dict.fromkeys(mapped[id_] for id_ in pair.highlight_ids if id_ in mapped)),
+                    "attention_roles": pair.attention_roles, "deterministic_fallback": pair.fallback,
+                } for pair in sorted(state["pairs"], key=lambda item: item.index)]
+                metadata["paired_summaries"] = summaries
+                preferred_ids = tuple(dict.fromkeys(id_ for pair in summaries for id_ in pair["highlight_ids"]))
+            else:
+                metadata.update(reference_cards=state["reference_cards"], reference_cards_are_separate_from_core=True)
             groups, conflicts, selection, fallback = await consolidate(
                 list(index.groups), stage="multi_finalizer", global_stage=True,
-                metadata={"paired_summaries":paired_summaries,
-                          "coverage_cards":[card for pair in paired_summaries for card in pair["coverage_cards"]]},
-                preferred_ids=preferred_ids,
+                metadata=metadata, preferred_ids=preferred_ids,
             )
             validate_reduced_index(index, groups)
         groups.sort(key=lambda group: (SEVERITY_ORDER[group.finding().severity], group.id))
@@ -1783,7 +1830,7 @@ severity, invent evidence, or delete observations.
             try:
                 async with asyncio.timeout_at(optional_deadline):
                     async with gate:
-                        assessment = await validated_retry("multi_recheck", prompt, attempt, allow_correction=False)
+                        assessment = await validated_retry("multi_recheck", prompt, attempt, allow_correction=False, allow_transient_retry=False)
                 if conflict is None:
                     if assessment.assessments:
                         by_id = {item.id:item for item in assessment.assessments}
@@ -1846,7 +1893,7 @@ severity, invent evidence, or delete observations.
                 summary=selected_summary(groups,state["summary_selection"],questions), findings=findings,
                 passport=Passport(document_title=specification.filename, run_at=run_at, model=llm.model_name,
                                   agent_version=review_version(), run_id=run_id, document_sha256=specification.sha256,
-                                  review_mode="multi_agent"),
+                                  review_mode=review_mode),
                 requirements=requirements, set_checks=set_checks, statistics=statistics, verdict=result,
                 decision_review=decision, reference_review=reference, readiness_checklist=readiness,
                 clarification_questions=questions, extraction_gaps=gaps,
@@ -1863,15 +1910,11 @@ severity, invent evidence, or delete observations.
             report.report_markdown = render_markdown(report)
         return {"report": report}
 
-    async def join_experts(_state):
-        return {}
-
     builder = StateGraph(ReviewState)
     builder.add_node("extract", extract)
     builder.add_node("prepare", prepare)
     builder.add_node("expert", run_expert)
     builder.add_node("expert_join", join_experts)
-    builder.add_node("pair_validator", pair_validator)
     builder.add_node("global_validator", validate_global)
     builder.add_node("finalizer", finalize)
     builder.add_node("targeted_recheck", recheck)
@@ -1880,11 +1923,15 @@ severity, invent evidence, or delete observations.
     builder.add_edge("extract", "prepare")
     builder.add_conditional_edges("prepare", dispatch, ["expert"])
     builder.add_edge("expert", "expert_join")
-    builder.add_conditional_edges("expert_join", distribute_pairs, ["pair_validator"])
-    builder.add_edge("pair_validator", "global_validator")
+    if paired:
+        builder.add_node("pair_validator", pair_validator)
+        builder.add_conditional_edges("expert_join", distribute_pairs, ["pair_validator"])
+        builder.add_edge("pair_validator", "global_validator")
+    else:
+        builder.add_edge("expert_join", "global_validator")
     builder.add_edge("global_validator", "finalizer")
     builder.add_edge("finalizer", "targeted_recheck")
     builder.add_edge("targeted_recheck", "verdict")
     builder.add_edge("verdict", END)
     async with asyncio.timeout_at(deadline):
-        return (await builder.compile().ainvoke({"results": [], "pairs": []}))["report"]
+        return (await builder.compile().ainvoke({"results": []}))["report"]

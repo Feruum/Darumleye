@@ -94,6 +94,9 @@ def _prompt_hash(value: str) -> str:
     return value.lower()
 
 
+REVIEW_MODE_LABELS = (("multi_agent_direct", "Direct"), ("multi_agent", "Multi-agent"), ("legacy", "Legacy"))
+
+
 def evaluation_model_widgets(prompt_versions: Sequence[str] = ()) -> list[dict]:
     """Compare observed model generations by mode and exact prompt hash.
 
@@ -103,7 +106,7 @@ def evaluation_model_widgets(prompt_versions: Sequence[str] = ()) -> list[dict]:
     """
     versions = list(dict.fromkeys(_prompt_hash(value) for value in prompt_versions))
     widgets = []
-    for mode, label in (("legacy", "Legacy"), ("multi_agent", "Multi-agent")):
+    for mode, label in REVIEW_MODE_LABELS:
         base = [eq("type", "GENERATION"), mode_filter(mode)]
         for version in (None, *versions):
             prefix = label if version is None else f"{label} prompt {version}"
@@ -417,19 +420,12 @@ def dashboard_manifest(prompt_versions: Sequence[str] = ()) -> list[dict]:
                     filters=model_calls,
                     chart="HORIZONTAL_BAR",
                 ),
-                widget(
-                    cost,
-                    "Legacy tokens",
-                    measure="totalTokens",
-                    agg="sum",
-                    filters=[*model_calls, mode_filter("legacy")],
-                ),
-                widget(
-                    cost,
-                    "Multi-agent tokens",
-                    measure="totalTokens",
-                    agg="sum",
-                    filters=[*model_calls, mode_filter("multi_agent")],
+                *(
+                    widget(
+                        cost, f"{label} tokens", measure="totalTokens", agg="sum",
+                        filters=[*model_calls, mode_filter(mode)],
+                    )
+                    for mode, label in REVIEW_MODE_LABELS
                 ),
             ],
         },
@@ -437,19 +433,12 @@ def dashboard_manifest(prompt_versions: Sequence[str] = ()) -> list[dict]:
             "name": f"Spec Review — {evaluation}",
             "description": "Configuration and mode comparisons; use offline benchmark for empirical accuracy.",
             "widgets": [
-                widget(
-                    evaluation,
-                    "Legacy analysis p95 (ms)",
-                    measure="latency",
-                    agg="p95",
-                    filters=[*analysis, mode_filter("legacy")],
-                ),
-                widget(
-                    evaluation,
-                    "Multi-agent analysis p95 (ms)",
-                    measure="latency",
-                    agg="p95",
-                    filters=[*analysis, mode_filter("multi_agent")],
+                *(
+                    widget(
+                        evaluation, f"{label} analysis p95 (ms)", measure="latency", agg="p95",
+                        filters=[*analysis, mode_filter(mode)],
+                    )
+                    for mode, label in REVIEW_MODE_LABELS
                 ),
                 widget(
                     evaluation,
@@ -469,17 +458,12 @@ def dashboard_manifest(prompt_versions: Sequence[str] = ()) -> list[dict]:
                     filters=[eq("name", "spec_review_verdict")],
                     chart="PIE",
                 ),
-                widget(
-                    evaluation,
-                    "Legacy attempts",
-                    filters=[*root, mode_filter("legacy")],
-                    chart="BAR_TIME_SERIES",
-                ),
-                widget(
-                    evaluation,
-                    "Multi-agent attempts",
-                    filters=[*root, mode_filter("multi_agent")],
-                    chart="BAR_TIME_SERIES",
+                *(
+                    widget(
+                        evaluation, f"{label} attempts", chart="BAR_TIME_SERIES",
+                        filters=[*root, mode_filter(mode)],
+                    )
+                    for mode, label in REVIEW_MODE_LABELS
                 ),
                 *evaluation_model_widgets(prompt_versions),
             ],

@@ -28,7 +28,8 @@ def enable_local_traces(monkeypatch):
     monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
 
 
-def test_langfuse_sdk_uses_shared_provider_and_blocks_media_before_export(monkeypatch):
+@pytest.mark.parametrize("mode", ["legacy", "multi_agent", "multi_agent_direct"])
+def test_langfuse_sdk_uses_shared_provider_and_blocks_media_before_export(monkeypatch, mode):
     """Use the real SDK processor, not a fake Langfuse implementation."""
     from langfuse import Langfuse
     from langfuse._task_manager.media_manager import MediaManager
@@ -69,7 +70,7 @@ def test_langfuse_sdk_uses_shared_provider_and_blocks_media_before_export(monkey
             attributes={"gen_ai.prompt": "data:text/plain;base64,UFJJVkFURQ=="},
         ):
             pass
-        with telemetry.review_run(str(uuid4()), review_mode="multi_agent"):
+        with telemetry.review_run(str(uuid4()), review_mode=mode):
             with telemetry.review_stage("extraction", model="model-a") as stage:
                 stage.usage({"input_tokens": 17, "output_tokens": 5})
                 stage.reasoning_effort("low")
@@ -103,7 +104,7 @@ def test_langfuse_sdk_uses_shared_provider_and_blocks_media_before_export(monkey
             attributes["extraction"][
                 "langfuse.observation.metadata.review_mode"
             ].string_value
-            == "multi_agent"
+            == mode
         )
     finally:
         sdk.shutdown()
@@ -228,13 +229,18 @@ def test_usage_summary_not_dependent_on_otlp(monkeypatch):
     monkeypatch.setattr(telemetry, "_tracer", lambda: trace.NoOpTracer())
     with telemetry.review_run(str(uuid4())) as run:
         with telemetry.review_stage("extract", model="model-a") as stage:
+            stage.reasoning_effort("low")
             stage.called()
             stage.usage(
-                SimpleNamespace(usage_metadata={"input_tokens": 10, "output_tokens": 3})
+                SimpleNamespace(
+                    usage_metadata={"input_tokens": 10, "output_tokens": 3},
+                    response_metadata={"model_name": "provider/model-a-version"},
+                )
             )
         with telemetry.review_stage("extract", model="model-a") as stage:
+            stage.reasoning_effort("low")
             stage.cached()
-        assert run.usage_summary() == {
+        totals = {
             "model_calls": 1,
             "cache_hits": 1,
             "input_tokens": 10,
@@ -243,12 +249,84 @@ def test_usage_summary_not_dependent_on_otlp(monkeypatch):
             "reported_output_tokens": 3,
             "usage_complete": True,
             "cost_usd": None,
+            "reported_cost_usd": None,
+        }
+        assert run.usage_summary() == {
+            **totals,
+            "by_stage": [{
+                "stage": "extract", "model": "model-a", "reasoning_effort": "low",
+                **totals, "response_models": {"provider/model-a-version": 1},
+            }],
         }
         with telemetry.review_stage("set", model="model-b") as stage:
+            stage.reasoning_effort("medium")
             stage.called()
-        assert run.usage_summary()["input_tokens"] is None
-        assert run.usage_summary()["reported_input_tokens"] == 10
-        assert not run.usage_summary()["usage_complete"]
+        with telemetry.review_stage("reference", model="model-a") as stage:
+            stage.reasoning_effort("low")
+            stage.called()
+            stage.usage(SimpleNamespace(response_metadata={
+                "model_name": "PRIVATE RESPONSE", "token_usage": {"prompt_tokens": 2},
+            }))
+        usage = run.usage_summary()
+        assert usage["input_tokens"] is None
+        assert usage["reported_input_tokens"] == 12
+        assert not usage["usage_complete"]
+        failed = next(row for row in usage["by_stage"] if row["stage"] == "set")
+        assert failed["model_calls"] == 1 and failed["input_tokens"] is None
+        assert failed["reasoning_effort"] == "medium" and failed["response_models"] == {}
+        reference = next(row for row in usage["by_stage"] if row["stage"] == "reference")
+        assert reference["input_tokens"] == 2 and reference["output_tokens"] is None
+        assert reference["response_models"] == {}
+
+
+def test_only_explicit_openrouter_cost_is_counted_and_incomplete_totals_are_null():
+    with telemetry.review_run(str(uuid4())) as run:
+        for amount in (0.2, 0.1, 0):
+            with telemetry.review_stage("extract", model="model-a") as stage:
+                stage.called()
+                message = SimpleNamespace(response_metadata={"token_usage": {"cost": amount}})
+                stage.usage(message, openrouter=True)
+                stage.usage(message, openrouter=True)
+        assert run.usage_summary()["cost_usd"] == 0.3
+        with telemetry.review_stage("set", model="model-a") as stage:
+            stage.called()  # Timed out without usage.
+        for openrouter, amount in ((False, 2), (True, None), (True, -1), (True, float("nan")), (True, True)):
+            with telemetry.review_stage("reference", model="model-a") as stage:
+                stage.called()
+                stage.usage(SimpleNamespace(response_metadata={"token_usage": {"cost": amount}}), openrouter=openrouter)
+        usage = run.usage_summary()
+        rows = {row["stage"]: row for row in usage["by_stage"]}
+        assert usage["cost_usd"] is None and usage["reported_cost_usd"] == 0.3
+        assert rows["extract"]["cost_usd"] == rows["extract"]["reported_cost_usd"] == 0.3
+        assert rows["reference"]["cost_usd"] is rows["reference"]["reported_cost_usd"] is None
+
+
+@pytest.mark.parametrize(("endpoint", "expected_cost"), [
+    ("https://openrouter.ai/api/v1", 0.0025),
+    ("https://openrouter.ai.example.test/api/v1", None),
+    ("http://openrouter.ai/api/v1", None),
+])
+async def test_review_call_reads_raw_sdk_cost_only_for_openrouter(endpoint, expected_cost):
+    import asyncio
+    from langchain_openai import ChatOpenAI
+    from agent.services.spec_review import ExtractionDraft, configured_review_reasoning, invoke_stage
+
+    def complete(_request):
+        return httpx.Response(200, json={
+            "id": "test", "object": "chat.completion", "created": 1, "model": "test",
+            "choices": [{"index": 0, "finish_reason": "stop",
+                         "message": {"role": "assistant", "content": '{"requirements":[]}'}}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5, "cost": 0.0025},
+        })
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(complete)) as client:
+        chat = ChatOpenAI(model="test", api_key="test", base_url=endpoint, http_async_client=client)
+        config = Settings(_env_file=None, llm_base_url=endpoint)
+        with telemetry.review_run(str(uuid4())) as run, configured_review_reasoning(config):
+            await asyncio.wait_for(invoke_stage(chat, "extraction", "test", {}, ExtractionDraft), timeout=3)
+            usage = run.usage_summary()
+    assert usage["cost_usd"] == usage["reported_cost_usd"] == expected_cost
+    assert usage["input_tokens"] == 3 and usage["output_tokens"] == 2
 
 
 def test_coverage_summary_is_metadata_only(monkeypatch):

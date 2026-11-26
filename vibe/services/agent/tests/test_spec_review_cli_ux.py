@@ -7,44 +7,27 @@ from langchain_core.messages import AIMessage
 
 from agent import spec_review_cli as cli
 from agent.services.spec_review import INDIVIDUAL_CRITERIA, SET_CRITERIA
+from test_spec_review import check, expert_reply
 
 
 class ControlledModel:
     model_name = "fixture"
 
     async def ainvoke(self, messages, **kwargs):
-        stage = json.loads(messages[-1].content)["stage"]
-        quote = {"start": 1, "end": 1, "quote": "REQ-1. Показывать баланс."}
-
-        def checks(criteria):
-            return [
-                {"criterion": criterion, "status": "pass", "comment": "Проверено"}
-                for criterion in criteria
-            ]
-
-        if stage == "extraction":
-            reply = {
-                "requirements": [
-                    {"source_id": "REQ-1", "text": quote["quote"], "evidence": quote}
-                ]
-            }
-        elif stage == "individual":
-            reply = {
-                "requirements": [
-                    {"id": "R-001", "checks": checks(INDIVIDUAL_CRITERIA)}
-                ],
-                "findings": [],
-            }
-        elif stage == "set":
-            reply = {
-                "summary": "Проверено",
-                "set_checks": [
-                    {**item, "evidence": [quote]} for item in checks(SET_CRITERIA)
-                ],
-                "findings": [],
-            }
+        data = json.loads(messages[-1].content)
+        text = "REQ-1. Показывать баланс."
+        if data["stage"] == "extraction":
+            reply = {"requirements": [{"source_id": "REQ-1", "text": text,
+                                       "evidence": {"start": 1, "end": 1, "quote": text}}]}
+        elif data["stage"] == "individual":
+            reply = {"requirements": [{"id": "R-001", "checks": [check(c) for c in INDIVIDUAL_CRITERIA]}],
+                     "findings": []}
+        elif data["stage"] == "set":
+            quote = {"start": 1, "end": 1, "quote": text}
+            reply = {"summary": "Проверено", "set_checks": [{**check(c), "evidence": [quote]} for c in SET_CRITERIA],
+                     "findings": []}
         else:
-            pytest.fail(f"Unexpected model stage: {stage}")
+            reply = expert_reply(data)
         return AIMessage(content=json.dumps(reply, ensure_ascii=False))
 
 
@@ -129,21 +112,23 @@ def test_review_mode_cli_defaults_and_explicit_selection():
     parser = cli.build_parser()
     assert parser.parse_args(["requirements.md"]).review_mode == "multi_agent"
     assert parser.parse_args(["requirements.md", "--review-mode", "legacy"]).review_mode == "legacy"
+    assert parser.parse_args(["requirements.md", "--review-mode", "multi_agent_direct"]).review_mode == "multi_agent_direct"
     assert parser.parse_args(["requirements.md", "--review-mode", "multi_agent"]).review_mode == "multi_agent"
     with pytest.raises(SystemExit):
         parser.parse_args(["requirements.md", "--review-mode", "unknown"])
 
 
-def test_cli_usage_written_separately_without_inventing_provider_cost(configured_cli, capsys):
+@pytest.mark.parametrize(("mode", "model_calls"), [("legacy", 3), ("multi_agent_direct", 11), ("multi_agent", 14)])
+def test_cli_usage_written_separately_without_inventing_provider_cost(configured_cli, capsys, mode, model_calls):
     source, env = configured_cli
     report = source.with_name("review.json")
     metrics = source.with_name("usage.json")
-    assert cli.main(["--review-mode", "legacy", str(source), "--env-file", str(env), "--output", str(report), "--metrics-output", str(metrics), "--quiet"]) == 0
+    assert cli.main(["--review-mode", mode, str(source), "--env-file", str(env), "--output", str(report), "--metrics-output", str(metrics), "--quiet"]) == 0
     data = json.loads(metrics.read_text())
-    assert data["model_calls"] == 3
+    assert data["model_calls"] == model_calls
     assert data["input_tokens"] is None and data["output_tokens"] is None
     assert data["cost_usd"] is None
-    assert json.loads(report.read_text())["passport"]["review_mode"] == "legacy"
+    assert json.loads(report.read_text())["passport"]["review_mode"] == mode
     assert capsys.readouterr().out.strip() == str(report)
 
 
@@ -214,13 +199,14 @@ def test_provider_failure_does_not_write_report_or_leak_error_details(
     assert "private-provider-details" not in printed.out + printed.err
 
 
+@pytest.mark.parametrize("mode", ["legacy", "multi_agent_direct", "multi_agent"])
 def test_checkpoint_resume_shows_saved_work_and_never_calls_model(
-    configured_cli, monkeypatch, capsys
+    configured_cli, monkeypatch, capsys, mode
 ):
     source, env = configured_cli
     checkpoint = source.parent / "checkpoints"
     command = [str(source), "--env-file", str(env), "--checkpoint-dir", str(checkpoint), "--format", "json"]
-    assert cli.main([*command, "--review-mode", "legacy"]) == 0
+    assert cli.main([*command, "--review-mode", mode]) == 0
     capsys.readouterr()
 
     class NoCallsModel(ControlledModel):
@@ -228,7 +214,7 @@ def test_checkpoint_resume_shows_saved_work_and_never_calls_model(
             pytest.fail("Accepted stages must be restored from the checkpoint")
 
     monkeypatch.setattr(cli, "ChatOpenAI", lambda **kwargs: NoCallsModel())
-    assert cli.main([*command, "--review-mode", "legacy"]) == 0
+    assert cli.main([*command, "--review-mode", mode]) == 0
     assert "контрольная точка" in capsys.readouterr().err
     first = json.loads(source.with_name("requirements.review.json").read_text())
     resumed = json.loads(source.with_name("requirements.review-2.json").read_text())
@@ -239,6 +225,60 @@ def test_missing_source_reports_actionable_error_without_output(tmp_path, capsys
     assert cli.main(["--review-mode", "legacy", str(tmp_path / "missing.pdf"), "--quiet"]) == 1
     assert "входной файл не найден" in capsys.readouterr().err
     assert not list(tmp_path.iterdir())
+
+
+def test_cli_effort_change_starts_a_separate_checkpointed_run(configured_cli, monkeypatch):
+    source, env = configured_cli
+    calls = []
+
+    class Capture(ControlledModel):
+        model_name = "openai/gpt-6-luna"
+
+        async def ainvoke(self, messages, **kwargs):
+            stage = json.loads(messages[-1].content)["stage"]
+            calls.append((stage, kwargs["reasoning_effort"]))
+            assert "extra_body" not in kwargs
+            return await super().ainvoke(messages, **kwargs)
+
+    monkeypatch.setattr(cli, "ChatOpenAI", lambda **kwargs: Capture())
+    monkeypatch.setenv("AGENT_LLM_MODEL", Capture.model_name)
+    command = [str(source), "--review-mode", "multi_agent", "--env-file", str(env),
+               "--checkpoint-dir", str(source.parent / "checkpoints"), "--format", "json", "--quiet"]
+    run_ids = []
+    for effort in ("auto", "low", "low"):
+        monkeypatch.setenv("AGENT_SPEC_REVIEW_REASONING_EFFORT", effort)
+        calls.clear()
+        out = source.parent / "review.json"
+        assert cli.main([*command, "--output", str(out)]) == 0
+        run_ids.append(json.loads(out.read_text())["passport"]["run_id"])
+        if len(run_ids) == 1:
+            assert ("multi_finalizer", "medium") in calls
+        elif len(run_ids) == 2:
+            assert ("multi_finalizer", "low") in calls
+            assert all(value == "low" for _, value in calls)
+        else:
+            assert calls == []
+    assert run_ids[0] != run_ids[1] == run_ids[2]
+
+
+def test_cli_openrouter_luna_wire_format(configured_cli, monkeypatch):
+    from test_spec_review import TEXT, payloads, provider
+
+    source, env = configured_cli
+    source.write_text(TEXT, encoding="utf-8")
+    monkeypatch.setenv("AGENT_LLM_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("AGENT_LLM_MODEL", "openai/gpt-6-luna")
+    monkeypatch.setenv("AGENT_SPEC_REVIEW_REASONING_EFFORT", "low")
+    requests = []
+    monkeypatch.setattr(cli, "ChatOpenAI", lambda **kw: provider(payloads(), requests, **kw))
+    assert cli.main([str(source), "--env-file", str(env), "--review-mode", "legacy", "--quiet"]) == 0
+    assert requests
+    for body in requests:
+        assert body["model"] == "openai/gpt-6-luna"
+        assert body["reasoning"] == {"effort": "low"}
+        assert body["provider"] == {"require_parameters": True}
+        assert body["max_completion_tokens"] == 8192
+        assert "temperature" not in body
 
 
 def test_default_cli_run_writes_multi_agent_graph(configured_cli, monkeypatch, capsys):
