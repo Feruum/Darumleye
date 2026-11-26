@@ -175,13 +175,22 @@ All model stages requested `openai/gpt-6-luna` with `reasoning.effort=low`. The 
 
 An initial integration series stopped during extraction on all nine submissions. OpenRouter returned HTTP 404. A controlled pair of synthetic requests showed that strict parameter routing rejected Luna with `temperature=0` and accepted the same request with the temperature field omitted. The corrected client keeps strict parameter routing. The initial failures recorded 18 application-level calls and no reported usage or price.
 
-The first corrected series produced nine reports that passed the independent audit. Both multi-agent routes completed all six expert roles on all three documents. The provider reported 1,843,063 input and 580,548 output tokens across 305 application-level calls and at least USD 0.50853599. The Paired stress run retried three tasks and had incomplete provider accounting. The [per-trial measurements](examples/quality-benchmark/openrouter-luna-low.csv) include coverage, counts, token subtotals, price when known and the run IDs.
+On the corrected client, the CLI ran three cold trials per route and document, rotating the order across repetitions. **24 of 27 reports passed every structural check.** The source hashes, runtime fingerprint, model settings and reference identity matched across all trials. Each completed report covered nine criteria per extracted requirement, six set checks and all 15 readiness checks. All 24 verdicts were `not_ready`. The 17 completed multi-agent reports recorded all six experts. Every one of the 1,996 core findings in the completed reports had a verified source citation.
 
-| Input | Legacy | Paired | Direct |
-| --- | ---: | ---: | ---: |
-| Training | 28 s | 42 s | 40 s |
-| Organizer | 1 min 15 s | 2 min 56 s | 2 min 31 s |
-| Stress PDF | 2 min 54 s | 7 min 27 s | 4 min 34 s |
+| Route | Audited reports | Training | Organizer | Stress PDF | Reported spend across all attempts |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Legacy | 7/9 | 0:28 · 3/3 | 1:16 · 2/3 | 2:50 · 2/3 | ≥ $0.2988 |
+| Paired | 9/9 | 0:43 · 3/3 | 2:48 · 3/3 | 5:24 · 3/3 | ≥ $0.6270 |
+| Direct | 8/9 | 0:41 · 3/3 | 2:45 · 2/3 | 5:04 · 3/3 | $0.6036 |
+
+Times are medians of completed, audited reports. Counts show successful reports per three submissions. Amounts are rounded to four decimal places. Across all 920 application-level calls, OpenRouter reported 5,585,951 input and 1,745,376 output tokens and USD 1.529379705 in charges. These are subtotals. The first Paired stress run retried three tasks and the second Legacy stress run stopped early. Both had incomplete accounting. The SDK supplied model metadata for 914 responses, all labeled `openai/gpt-6-luna`. The [per-trial measurements](examples/quality-benchmark/openrouter-luna-low.csv) include partial usage, failure reasons when available, coverage, matched themes, source-checked stress finding IDs and run IDs.
+
+Three cold submissions ended without a report. On the organizer document, Legacy rejected a quotation absent from the cited original and Direct rejected invalid mandatory criteria in the Risk Inspector's set-level response. On the stress PDF, Legacy exited after 172 seconds. The saved diagnostic did not identify a terminal stage or cause.
+
+**Detection and interpretation**
+
+- All nine training trials matched all four seeded defects and all six annotated obligations. On the organizer document, the automated defect matcher found 4/6 in both completed Legacy runs, 5/6, 6/6 and 6/6 in Paired, and 5/6 in both Direct runs. Extraction varied independently. The Paired report with the fewest matched obligations covered 19/26 and still matched all six annotated defect themes.
+- On the stress PDF all eight completed reports identified the three conflicts selected from the original before inspecting the model findings. Legacy produced two audited stress reports, and both Paired and Direct produced three. The stress input has no comprehensive defect annotation.
 
 **Source checks from the first repetition**
 
