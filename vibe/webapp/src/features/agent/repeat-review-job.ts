@@ -44,7 +44,7 @@ async function observeRepeat(store: RepeatReviewJobStore, id: string, operation:
 
 export function submitRepeatReview(store: RepeatReviewJobStore, transport: AuthenticatedTransport, id: string, file: File, signal: AbortSignal, references: readonly ReferenceUpload[], mode: AgentReviewMode | undefined, interval = 1500) {
   store.remember(id)
-  return observeRepeat(store, id, () => reviewAgentSpecification(transport, file, signal, references, interval, mode ?? 'multi_agent_direct', id))
+  return observeRepeat(store, id, () => reviewAgentSpecification(transport, file, signal, references, interval, mode ?? 'legacy', id))
 }
 
 export function resumeRepeatReview(store: RepeatReviewJobStore, transport: AuthenticatedTransport, id: string, signal: AbortSignal, interval = 1500) {

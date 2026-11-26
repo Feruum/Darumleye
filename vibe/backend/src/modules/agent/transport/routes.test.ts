@@ -303,17 +303,13 @@ test('review mode is validated and forwarded only for specification reviews', as
     form.set('review_mode', mode)
     return form
   }
-  for (const [input, expected] of [
-    ['multi_agent', 'multi_agent'],
-    ['multi_agent_direct', 'multi_agent_direct'],
-    ['legacy', 'multi_agent_direct'],
-  ]) {
+  for (const input of ['legacy', 'multi_agent', 'multi_agent_direct']) {
     expect((await app.request('/api/agent/spec-reviews', { method: 'POST', headers, body: upload(input) })).status).toBe(200)
-    expect(requests.at(-1)?.get('review_mode')).toBe(expected)
+    expect(requests.at(-1)?.get('review_mode')).toBe(input)
     const job = upload(input)
     job.set('job_id', '0196f6f8-6600-7000-8000-000000000001')
     expect((await app.request('/api/agent/spec-review-jobs', { method: 'POST', headers, body: job })).status).toBe(200)
-    expect(requests.at(-1)?.get('review_mode')).toBe(expected)
+    expect(requests.at(-1)?.get('review_mode')).toBe(input)
   }
   expect((await app.request('/api/agent/spec-reviews', { method: 'POST', headers, body: upload('invalid') })).status).toBe(400)
   const duplicate = upload('legacy')

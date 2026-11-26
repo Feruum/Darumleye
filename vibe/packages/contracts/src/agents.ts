@@ -203,11 +203,11 @@ const agentSpecSetCheckSchema = agentSpecCheckSchema.extend({
 
 export const agentReviewModeSchema = z.enum(['legacy', 'multi_agent', 'multi_agent_direct'])
 export type AgentReviewMode = z.infer<typeof agentReviewModeSchema>
-export const agentReviewSubmissionModeSchema = agentReviewModeSchema.transform(mode => mode === 'legacy' ? 'multi_agent_direct' : mode)
+export const agentReviewSubmissionModeSchema = agentReviewModeSchema
 export type AgentReviewSubmissionMode = z.infer<typeof agentReviewSubmissionModeSchema>
 export const AGENT_DEFAULT_REVIEW_MODE: AgentReviewSubmissionMode = 'multi_agent'
 export const agentReviewModeLabels: Record<AgentReviewMode, string> = {
-  legacy: 'Стандартный',
+  legacy: 'Классический (Legacy)',
   multi_agent: 'Парная валидация',
   multi_agent_direct: 'Прямая валидация',
 }

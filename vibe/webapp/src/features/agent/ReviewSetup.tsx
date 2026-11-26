@@ -19,6 +19,12 @@ const stepLabels = [
   'Документ', 'Настройки', 'Отчёт',
 ] as const
 
+const reviewModeOptions = [
+  { mode: 'multi_agent', description: 'Три парных валидатора сверяют выводы экспертов перед общей проверкой.' },
+  { mode: 'multi_agent_direct', description: 'Общий валидатор получает выводы каждого эксперта напрямую.' },
+  { mode: 'legacy', description: 'Модель проверяет требования по отдельности и оценивает весь набор.' },
+] as const
+
 // Adapted from Skiper UI's free ArrowIcon (Skiper99):
 // https://skiper-ui.com/v1/skiper99 — the expanding shaft follows step state rather than hover.
 function StepConnector() {
@@ -118,8 +124,10 @@ export function ReviewSetup({
           </div>
           <fieldset className="sr-review-mode-options">
             <Typography as="legend" variant="bodySmMedium">Режим проверки</Typography>
-            <label><input type="radio" name={`${inputId}-review-mode`} checked={reviewMode === 'multi_agent'} onChange={() => onReviewModeChange?.('multi_agent')} /><span><Typography as="strong" variant="bodySmMedium">{agentReviewModeLabels.multi_agent}</Typography><Typography as="span" variant="caption">Три парных валидатора сверяют выводы экспертов перед общей проверкой.</Typography></span></label>
-            <label><input type="radio" name={`${inputId}-review-mode`} checked={reviewMode === 'multi_agent_direct'} onChange={() => onReviewModeChange?.('multi_agent_direct')} /><span><Typography as="strong" variant="bodySmMedium">{agentReviewModeLabels.multi_agent_direct}</Typography><Typography as="span" variant="caption">Общий валидатор получает выводы каждого эксперта напрямую.</Typography></span></label>
+            {reviewModeOptions.map(({ mode, description }) => <label key={mode}>
+              <input type="radio" name={`${inputId}-review-mode`} value={mode} checked={reviewMode === mode} onChange={() => onReviewModeChange?.(mode)} />
+              <span><Typography as="strong" variant="bodySmMedium">{agentReviewModeLabels[mode]}</Typography><Typography as="span" variant="caption">{description}</Typography></span>
+            </label>)}
           </fieldset>
           {file && <ReferenceSourcesInput references={references} disabled={false} onChange={onReferencesChange} onFileError={onReferenceError} />}
           {referenceError && <Alert variant="destructive"><AlertTitle>Проверьте источники</AlertTitle><AlertDescription>{referenceError}</AlertDescription></Alert>}

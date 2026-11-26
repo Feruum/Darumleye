@@ -540,7 +540,7 @@
   .sr-file-glyph { transition: transform 180ms var(--glass-ease); }
 }
 @media (min-width: 1001px) {
-  .sr-review-mode-options { grid-template-columns: repeat(2, minmax(0,1fr)); align-items: stretch; }
+  .sr-review-mode-options { grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); align-items: stretch; }
 }
 @media (max-width: 640px) {
   .sr-guide-heading { min-height: 7.5rem; }

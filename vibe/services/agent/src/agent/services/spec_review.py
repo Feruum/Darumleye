@@ -53,7 +53,7 @@ from agent.services.spec_reference_review import (
 )
 from agent.services.spec_review_context import SetScope, is_large_document, requirement_batches, requirement_terms, selected_units, set_scopes, terms
 from agent.services.spec_report import render_markdown
-from agent.services.spec_review_mode import ACTIVE_REVIEW_MODES, REVIEW_MODES, ReviewMode
+from agent.services.spec_review_mode import MULTI_AGENT_MODES, REVIEW_MODES, ReviewMode
 from agent.utils.review_telemetry import review_stage
 
 import structlog
@@ -1544,7 +1544,7 @@ async def review_specification(
     run_id = str(UUID(run_id)) if run_id is not None else str(uuid4())
     with review_run(run_id, review_mode=review_mode, source="pipeline") as run:
         with review_stage("review-analysis") as analysis:
-            if review_mode in ACTIVE_REVIEW_MODES:
+            if review_mode in MULTI_AGENT_MODES:
                 from agent.services.spec_multi_agent import review_multi_agent
 
                 report = await review_multi_agent(
@@ -1655,7 +1655,7 @@ async def review_specification_configured(
 ) -> ReviewReport:
     """Use identical opt-in assessment and total deadline for HTTP and CLI runs."""
     duration = (
-        (configuration.spec_review_large_timeout_seconds if review_mode in ACTIVE_REVIEW_MODES or is_large_document(specification) else configuration.spec_review_timeout_seconds)
+        (configuration.spec_review_large_timeout_seconds if review_mode in MULTI_AGENT_MODES or is_large_document(specification) else configuration.spec_review_timeout_seconds)
         if timeout_seconds is None
         else timeout_seconds
     )

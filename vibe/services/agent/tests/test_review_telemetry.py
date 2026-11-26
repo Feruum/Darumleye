@@ -28,7 +28,7 @@ def enable_local_traces(monkeypatch):
     monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
 
 
-@pytest.mark.parametrize("mode", ["multi_agent", "multi_agent_direct"])
+@pytest.mark.parametrize("mode", ["legacy", "multi_agent", "multi_agent_direct"])
 def test_langfuse_sdk_uses_shared_provider_and_blocks_media_before_export(monkeypatch, mode):
     """Use the real SDK processor, not a fake Langfuse implementation."""
     from langfuse import Langfuse

@@ -145,7 +145,7 @@ async def test_stored_legacy_job_finishes_with_its_original_pipeline(
 
 @pytest.mark.parametrize(("first", "expected"), [
     (None, "multi_agent"),
-    ("legacy", "multi_agent_direct"),
+    ("multi_agent", "multi_agent"),
     ("multi_agent_direct", "multi_agent_direct"),
 ])
 async def test_multi_agent_job_reports_graph_and_first_admission_mode(job_client, monkeypatch, first, expected):
@@ -158,7 +158,7 @@ async def test_multi_agent_job_reports_graph_and_first_admission_mode(job_client
         return await job_client.post(JOBS, headers=HEADERS, data={"job_id": job_id, **({"review_mode": mode} if mode else {})}, files={"file": ("requirements.txt", SOURCE.encode(), "text/plain")})
 
     assert (await submit_mode(first)).status_code == 202
-    assert (await submit_mode("multi_agent" if first else "legacy")).status_code == 202  # Original mode is immutable.
+    assert (await submit_mode("legacy")).status_code == 202  # Original mode is immutable.
     terminal = await wait_for_terminal(job_client, job_id)
     assert terminal["status"] == "completed", terminal
     response = await job_client.get(f"{ARCHIVE}/{job_id}", headers=HEADERS)
@@ -281,7 +281,7 @@ async def test_restart_resumes_same_durable_job_without_repeating_accepted_stage
     assert result["status"] == "completed", result
     assert result["review_id"] == job_id
     assert "extraction" not in restarted_calls
-    assert "multi_logic_inspector_individual" in restarted_calls and "multi_logic_inspector_set" in restarted_calls
+    assert "individual" in restarted_calls and "set" in restarted_calls
     markers = [span for span in telemetry.get_finished_spans() if span.name == "checkpoint"]
     assert len(markers) == 1
     assert markers[0].attributes["langfuse.session.id"] == job_id
@@ -340,8 +340,8 @@ async def test_stale_lease_recovery_after_downtime_claims_once_and_reuses_checkp
         result = await wait_for_terminal(job_client, job_id)
         assert result["status"] == "completed", result
         assert restarted_calls.count("extraction") == 0
-        assert restarted_calls.count("multi_logic_inspector_individual") == 1
-        assert restarted_calls.count("multi_finalizer") == 1
+        assert restarted_calls.count("individual") == 1
+        assert restarted_calls.count("set") == 1
         assert len([span for span in telemetry.get_finished_spans() if span.name == "checkpoint"]) == 1
         assert_terminal_payload_removed(await stored_job(job_sessions, job_id))
     finally:
@@ -640,9 +640,9 @@ async def test_durable_completion_archives_full_reference_and_reopens_exact_lega
     assert "reference_source_units" not in detail.json()
     assert detail.json()["report"]["reference_review"]["observations"][0]["reference_evidence"][0]["quote"] == REFERENCE_QUOTE
     calls_after_review = len(calls)
-    assert detail.json()["report"]["passport"]["review_mode"] == "multi_agent_direct"
+    assert detail.json()["report"]["passport"]["review_mode"] == "legacy"
     stages = [json.loads(req["messages"][1]["content"])["stage"] for req in calls]
-    assert stages.count("reference") == stages.count("multi_finalizer") == 1
+    assert sorted(stages) == ["extraction", "individual", "reference", "set"]
     path = f"{ARCHIVE}/{job_id}/references/S-001"
     result = await job_client.get(path, headers=HEADERS)
     assert result.status_code == 200, result.text

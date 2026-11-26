@@ -75,11 +75,11 @@ test('a repeat cancellation that loses the race to successful completion returns
 })
 
 
-test.each([undefined, 'legacy', 'multi_agent_direct'] as const)('a repeat of %s submits direct validation', async mode => {
+test.each([undefined, 'legacy', 'multi_agent_direct', 'multi_agent'] as const)('a repeat preserves %s and treats missing metadata as legacy', async mode => {
   const store = createRepeatReviewJobStore('owner', original, storage())
   const transport = { request: async (path: string, _: unknown, options: { method?: string; body?: FormData }) => {
     if (options.method === 'POST') {
-      expect(options.body?.get('review_mode')).toBe('multi_agent_direct')
+      expect(options.body?.get('review_mode')).toBe(mode ?? 'legacy')
       return { ...job, status: 'completed', review_id: jobId }
     }
     expect(path).toBe(`/api/agent/spec-reviews/${jobId}`)

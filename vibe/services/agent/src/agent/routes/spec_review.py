@@ -9,7 +9,6 @@ from typing import Annotated
 from uuid import UUID
 
 import structlog
-from pydantic import BeforeValidator
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
@@ -33,7 +32,7 @@ from agent.services.spec_reference_review import (
     prepare_references,
     reference_byte_limit,
 )
-from agent.services.spec_review_mode import REVIEW_MODES, ActiveReviewMode, ReviewMode, new_review_mode
+from agent.services.spec_review_mode import REVIEW_MODES, ReviewMode
 from agent.services.spec_review_jobs import MAX_REVIEW_JOB_SECONDS, ReviewJobCapacityError, ReviewJobFailure, ReviewJobs, get_review_job, public_job
 from agent.services.spec_review import (
     MAX_REVIEW_FILE_BYTES,
@@ -47,7 +46,7 @@ from agent.utils.review_telemetry import review_run, review_stage
 
 router = APIRouter(prefix="/api/v1", tags=["specification review"])
 logger = structlog.get_logger(__name__)
-NewReviewMode = Annotated[ActiveReviewMode, BeforeValidator(new_review_mode), Form()]
+ReviewModeForm = Annotated[ReviewMode, Form()]
 
 
 def review_jobs(app: FastAPI, sessions=async_session) -> ReviewJobs:
@@ -298,7 +297,7 @@ async def read_review_upload(
             content,
             entries,
             inputs,
-            new_review_mode(review_mode),
+            review_mode,
         )
     except SpecificationValidationError as error:
         raise HTTPException(
@@ -398,7 +397,7 @@ async def create_spec_review(
     file: UploadFile = File(...),
     reference_files: list[UploadFile] | None = File(default=None),
     reference_manifest: str | None = Form(default=None),
-    review_mode: NewReviewMode = "multi_agent",
+    review_mode: ReviewModeForm = "multi_agent",
     user: UserProfile = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> ReviewReport:
@@ -450,7 +449,7 @@ async def create_spec_review_job(
     file: UploadFile = File(...),
     reference_files: list[UploadFile] | None = File(default=None),
     reference_manifest: str | None = Form(default=None),
-    review_mode: NewReviewMode = "multi_agent",
+    review_mode: ReviewModeForm = "multi_agent",
     user: UserProfile = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):

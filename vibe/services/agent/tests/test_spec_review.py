@@ -272,13 +272,14 @@ def test_only_trusted_proxy_can_submit_specifications(review_client):
 @pytest.mark.parametrize(
     "extension,mime", [("txt", "text/plain"), ("md", "text/markdown")]
 )
+@pytest.mark.parametrize("mode", ["legacy", "multi_agent_direct"])
 def test_review_sends_all_lines_and_returns_complete_report(
-    review_client, monkeypatch, extension, mime
+    review_client, monkeypatch, extension, mime, mode
 ):
     requests = []
     configure_provider(monkeypatch, payloads(), requests)
     response = review_client.post(
-        URL, headers=HEADERS, files={"file": (f"spec.{extension}", TEXT, mime)}, data={"review_mode": "legacy"}
+        URL, headers=HEADERS, files={"file": (f"spec.{extension}", TEXT, mime)}, data={"review_mode": mode}
     )
     assert response.status_code == 200, response.text
     report = response.json()
@@ -305,13 +306,17 @@ def test_review_sends_all_lines_and_returns_complete_report(
             "messages": [{"type": "human", "content": "What should I fix?"}]}
     assert review_client.post('/api/v1/chat/stream', headers={**HEADERS, "X-User-ID": "other"}, json=chat).status_code == 404
     assert review_client.post('/api/v1/chat/stream', headers=HEADERS, json={**chat, "thread_id": "other-review-thread"}).status_code == 422
-    assert report["passport"]["review_mode"] == "multi_agent_direct"
-    assert report["evidence_graph"]["nodes"]
+    assert report["passport"]["review_mode"] == mode
     stages = [json.loads(req["messages"][1]["content"])["stage"] for req in requests]
     assert stages[0] == "extraction"
-    assert "multi_finalizer" in stages
-    assert "multi_gap_hunter_individual" in stages
-    assert all(not stage.startswith("multi_pair_") for stage in stages)
+    if mode == "legacy":
+        assert report["evidence_graph"] is None
+        assert sorted(stages) == ["extraction", "individual", "set"]
+    else:
+        assert report["evidence_graph"]["nodes"]
+        assert "multi_finalizer" in stages
+        assert "multi_gap_hunter_individual" in stages
+        assert all(not stage.startswith("multi_pair_") for stage in stages)
     assert [
         unit["text"]
         for unit in json.loads(requests[0]["messages"][1]["content"])["units"]
@@ -648,8 +653,7 @@ def test_cli_writes_complete_report_with_controlled_model(
     assert "## Проверка набора требований" in document
     assert "## Итог" in document
     stages = [json.loads(item["messages"][1]["content"])["stage"] for item in requests]
-    assert stages.count("multi_finalizer") == 1
-    assert all(not stage.startswith("multi_pair_") for stage in stages)
+    assert sorted(stages) == ["extraction", "individual", "set"]
 
 
 def test_cli_rejects_overwriting_input(tmp_path):
@@ -1208,7 +1212,7 @@ def test_reference_review_separate_and_all_five_categories(review_client, monkey
     assert REFERENCE_QUOTE in report["report_markdown"]
     assert QUOTE in report["report_markdown"]
     stages = [json.loads(item["messages"][1]["content"])["stage"] for item in requests]
-    assert stages.count("reference") == stages.count("multi_finalizer") == 1
+    assert sorted(stages) == ["extraction", "individual", "reference", "set"]
     data = next(
         json.loads(item["messages"][1]["content"])
         for item in requests
@@ -1355,7 +1359,7 @@ def test_cli_reference_manifest_relative_to_its_file(tmp_path, monkeypatch):
         == "chroma_hybrid_local_features"
     )
     assert (tmp_path / "chroma").is_dir()
-    assert report["passport"]["review_mode"] == "multi_agent_direct"
+    assert report["passport"]["review_mode"] == "legacy"
     assert sum(json.loads(item["messages"][1]["content"])["stage"] == "reference" for item in requests) == 1
 
 

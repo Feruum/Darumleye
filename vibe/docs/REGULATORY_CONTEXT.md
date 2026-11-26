@@ -38,7 +38,7 @@ From the repository root:
 uv run --project vibe/services/agent --frozen python -m agent.spec_review_cli --input vibe/docs/examples/fintech-payment-spec.txt --output .artifacts/reference-demo.md --reference-manifest vibe/docs/examples/reference-manifest.example.json --env-file vibe/.env
 ```
 
-This example uses the current `multi_agent` default with GPT-6 Luna in the example configuration. Pass `--review-mode multi_agent_direct` to send the reference result and the other experts’ observations directly to the global validator. Reference observations remain separate from the core verdict in either mode.
+This example uses the current `multi_agent` default with GPT-6 Luna in the example configuration. Pass `--review-mode multi_agent_direct` to send the reference result and the other experts’ observations directly to the global validator. With `--review-mode legacy`, the classic pipeline runs its own optional reference comparison. All three modes report reference observations separately from the core verdict.
 
 To use the five public excerpts saved in this workspace (if available), replace the manifest argument above with:
 
