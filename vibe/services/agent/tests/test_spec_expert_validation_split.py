@@ -46,7 +46,7 @@ async def test_split_after_failed_correction_validates_all_rows_and_preserves_ex
     checkpoint = StageCheckpoint(tmp_path, provider_identity="fixture")
     chat = split_fixture()
     with checkpoint_scope(checkpoint):
-        report = await review_specification(source(), chat, review_mode=mode)
+        report = await review_specification(source(), chat, review_mode=mode, concurrency=3)
     assert called_batches(chat) == {("R-001", "R-002"): 2, ("R-001",): 1, ("R-002",): 1}
     assert chat.peak <= 3
     assert all(tuple(row.criterion for row in req.checks) == INDIVIDUAL_CRITERIA
@@ -60,7 +60,7 @@ async def test_split_after_failed_correction_validates_all_rows_and_preserves_ex
                    for edge in graph.edges)
     resumed = split_fixture()
     with checkpoint_scope(checkpoint):
-        repeated = await review_specification(source(), resumed, review_mode=mode)
+        repeated = await review_specification(source(), resumed, review_mode=mode, concurrency=3)
     assert not resumed.stages
     assert repeated.evidence_graph == report.evidence_graph
 

@@ -140,10 +140,17 @@ def expert_reply(data, observations=()):
 
 
 @pytest.mark.parametrize("review_mode", ["legacy", "multi_agent", "multi_agent_direct"])
-@pytest.mark.parametrize("limit", [8, 12])
-async def test_configured_primary_concurrency_applies_to_extraction_and_review(monkeypatch, review_mode, limit):
-    monkeypatch.setenv("AGENT_SPEC_REVIEW_CONCURRENCY", str(limit))
-    config = Settings(_env_file=None, spec_review_use_nace=False)
+@pytest.mark.parametrize(("configured", "limit"), [
+    pytest.param(True, None, id="settings-default"),
+    pytest.param(False, None, id="runtime-default"),
+    pytest.param(True, 8, id="settings-override-8"),
+    pytest.param(True, 12, id="settings-override-12"),
+])
+async def test_primary_concurrency_applies_to_extraction_and_review(monkeypatch, review_mode, configured, limit):
+    if limit is None:
+        monkeypatch.delenv("AGENT_SPEC_REVIEW_CONCURRENCY", raising=False)
+    else:
+        monkeypatch.setenv("AGENT_SPEC_REVIEW_CONCURRENCY", str(limit))
     rules = [f"Показать операцию {i}." for i in range(1, 73)]
     source = Specification("rules.md", "md", [rule + " Описание." * 90 for rule in rules])
     peak = {"extraction": 0, "review": 0}
@@ -177,10 +184,14 @@ async def test_configured_primary_concurrency_applies_to_extraction_and_review(m
         finally:
             active -= 1
 
-    report = await review_specification_configured(
-        source, SimpleNamespace(model_name="fixture", ainvoke=invoke), config, review_mode=review_mode,
-    )
-    assert peak == {"extraction": limit, "review": limit}
+    llm = SimpleNamespace(model_name="fixture", ainvoke=invoke)
+    if configured:
+        config = Settings(_env_file=None, spec_review_use_nace=False)
+        report = await review_specification_configured(source, llm, config, review_mode=review_mode)
+    else:
+        report = await review_specification(source, llm, review_mode=review_mode)
+    expected = 9 if limit is None else limit
+    assert peak == {"extraction": expected, "review": expected}
     assert [r.id for r in report.requirements] == [f"R-{i:03d}" for i in range(1, len(rules) + 1)]
     assert [r.evidence.quote for r in report.requirements] == rules
     assert all([c.criterion for c in r.checks] == list(INDIVIDUAL_CRITERIA) for r in report.requirements)

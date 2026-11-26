@@ -19,7 +19,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from agent.build_info import GIT_COMMIT, SERVICE_VERSION
-from agent.config.settings import Settings
+from agent.config.settings import REVIEW_CONCURRENCY, Settings
 from agent.services.spec_decision_review import DecisionReview, NaceFindingVerifier
 from agent.services.spec_eval_checkpoint import (
     checkpoint_attempt,
@@ -111,7 +111,6 @@ Additionally assess the supplied readiness_checklist criteria against the origin
 """
 MAX_REQUIREMENTS = 500
 REVIEW_BATCH_SIZE = 6
-REVIEW_CONCURRENCY = 3
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 Status = Literal["pass", "fail", "uncertain", "not_applicable"]
 

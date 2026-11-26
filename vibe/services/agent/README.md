@@ -23,7 +23,7 @@ The following env values come from the root `.env.example` and `docker-compose.y
 | `AGENT_SPEC_REVIEW_REASONING_EFFORT` | Applies a single reasoning effort to all review stages. The example selects `low` |
 | `AGENT_LLM_TIMEOUT_SECONDS` / `AGENT_LLM_MAX_RETRIES` | Per-call timeout and retry policy; defaults 45 seconds / 2 retries |
 | `AGENT_SPEC_REVIEW_TIMEOUT_SECONDS` | Total time limit for a specification review; default `230`, allowed range `30..240` |
-| `AGENT_SPEC_REVIEW_CONCURRENCY` | Maximum in-flight primary model calls per review. Accepts a positive integer and defaults to 3. A selected reference comparison has a separate slot. |
+| `AGENT_SPEC_REVIEW_CONCURRENCY` | Maximum simultaneous primary model calls per review across all stages of the selected mode. Accepts a positive integer and defaults to 9 in `legacy`, `multi_agent` and `multi_agent_direct`. The optional Reference Inspector has one separate slot. |
 | `AGENT_SPEC_REVIEW_USE_NACE` | Independent Drex support checks of core and normative findings, plus reference candidate reranking; defaults to `false` |
 | `AGENT_EMBEDDING_BASE_URL` | Optional embedding API origin; defaults to chat URL |
 | `AGENT_EMBEDDING_API_KEY` | Optional embedding API credential; defaults to chat key |

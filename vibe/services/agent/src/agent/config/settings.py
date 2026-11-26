@@ -7,6 +7,9 @@ from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+REVIEW_CONCURRENCY = 9
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="AGENT_",
@@ -21,7 +24,7 @@ class Settings(BaseSettings):
     request_timeout: int = 60
     spec_review_timeout_seconds: int = Field(default=230, ge=30, le=240)
     spec_review_large_timeout_seconds: int = Field(default=900, ge=30, le=900)
-    spec_review_concurrency: int = Field(default=3, ge=1)
+    spec_review_concurrency: int = Field(default=REVIEW_CONCURRENCY, ge=1)
     spec_review_reasoning_effort: Literal["auto", "low", "medium"] = "auto"
     spec_review_use_nace: bool = False
     max_history_messages: int = 15
