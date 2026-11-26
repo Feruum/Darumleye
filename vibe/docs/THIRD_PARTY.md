@@ -217,11 +217,6 @@ Original path: `vibe/NOTICE`
 
 ```text
 Vibe Coding Template
-Copyright 2026 Dima Sukharev
-
-Original author: Dima Sukharev
-GitHub: https://github.com/di-sukharev
-Original repository: https://github.com/di-sukharev/vibe
 
 Vendored styles: shadcn 4.16.1, dist/tailwind.css
 Copyright (c) 2023 shadcn
