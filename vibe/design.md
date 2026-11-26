@@ -59,4 +59,4 @@ Chat text stays React-escaped plain text. Sources show the document filename, pa
 5. Run focused tests, types, lint, architecture validation, and relevant builds. For interaction changes, exercise the real UI on desktop and a narrow viewport with labeled test-data/provider boundaries.
 6. Update this document, the relevant README, CHECKLIST, and dated verification evidence when a lasting library or behavior decision changes.
 
-The current [verification report](docs/VERIFICATION.md) distinguishes functional UI tests from real-provider quality checks. The datathon workflow remains an independent local Python CLI; browser UI libraries do not train or evaluate its models.
+The current [verification report](docs/VERIFICATION.md) distinguishes functional UI tests from real-provider quality checks.

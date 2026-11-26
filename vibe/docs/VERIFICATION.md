@@ -141,6 +141,8 @@ The normal `bun run dev` command rebuilt the agent image, started local Compose 
 
 ## Datathon preparation — 2026-10-16
 
+Historical record: the independent CLI and its commands were removed on 2026-11-26. The results below describe the original audit and are not current application checks.
+
 Scope: the new standalone `datathon/` CLI, its root command wrapper, documentation, and normal local application startup. No official competition dataset or brief was available for this preparation. No cloud checks, deployment, or paid model calls were performed.
 
 The environment used Bun 1.4.2, Python 3.12.14 in `datathon/.venv`, and Docker Engine 29.8.2. The approved Python libraries and their transitive dependencies are pinned in `datathon/requirements.lock`: pandas 3.0.6, scikit-learn 1.9.1, and matplotlib 3.11.2. Setup installed the isolated environment successfully; `pip check` reported no broken requirements. The Bun audit does not audit these Python packages.

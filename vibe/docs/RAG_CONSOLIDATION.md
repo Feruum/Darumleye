@@ -28,7 +28,7 @@ The original project is not reproduced feature for feature. The following table 
 | Azure deployment, identity, search, storage, Service Bus | Inactive legacy source; not enabled, deployed, or advertised as working local features |
 | Automatic memory writes and old shared/default-user memory facade | Removed; document text and model tool calls cannot create/delete personal notes |
 
-No additional dependency was installed for these features. The existing `rank-bm25`, Chroma, SQLAlchemy, FastAPI, and React/TanStack dependencies supply them. No second authentication service or frontend was introduced. The datathon environment remains separate.
+No additional dependency was installed for these features. The existing `rank-bm25`, Chroma, SQLAlchemy, FastAPI, and React/TanStack dependencies supply them. No second authentication service or frontend was introduced.
 
 ## Retrieval behavior
 
