@@ -30,7 +30,7 @@ uv run --project vibe/services/agent --frozen python vibe/services/agent/scripts
   --output .artifacts/benchmark-defective-score.json
 ```
 
-If no report exists, generate it with the normal specification review CLI described in [SPEC_REVIEW.md](SPEC_REVIEW.md). That CLI calls the configured provider and may incur charges. Repeat for each of the four sources. Do not submit the gold annotation to the model. Record the exact source and report SHA-256, model, agent revision, settings and run ID. No model runs on the new synthetic examples are claimed here.
+If no report exists, generate it with the normal specification review CLI described in [SPEC_REVIEW.md](SPEC_REVIEW.md). That CLI calls the configured provider and may incur charges. Repeat for each of the four sources. Do not submit the gold annotation to the model. Record the exact source and report SHA-256, model, agent revision, settings and run ID. The dated experiment sections below identify the sources and outputs used in live trials.
 
 ### What each result means
 
@@ -187,6 +187,52 @@ A separate cold diagnostic repeat of organizer/direct took 91.75 seconds and eig
 The six-page stress PDF had no independent defect labels. Both CLI attempts stopped before consolidation and produced no report or verdict. The paired attempt recorded a provider timeout on the Logic Inspector's document-level review. The direct attempt recorded a generic failure during the expert stage. Its exact cause and complete token usage are unavailable.
 
 Of the six planned cold starts, three produced reports that passed every structural check. Training was the only completed pair. Direct saved 7.05 seconds and 6,045 tokens on this input. All three completed reports recorded deterministic fallback during consolidation and verified quotations for every finding. No reliable currency tariff was available. These observations do not establish a general speed or accuracy advantage.
+
+### Three-mode recovery experiment, 26 November 2026
+
+Each series ran nine cold CLI trials, one for each combination of three documents and three modes. Both used the same inputs, annotations, trial order, `gpt-6-luna`, reasoning levels, three main generation slots, a 120-second API timeout, a 900-second overall limit, zero SDK retries and the same Drex settings. No external references were selected. The original generation implementation fingerprint began with `5583f0a37deb`, and the recovery implementation with `b3fbd7b6153b`. A metadata-only Langfuse exporter correction was tested separately. The recovery series enabled one bounded task-level transport retry with a one-second initial backoff and used separate fresh checkpoint directories. These limits applied to all three modes. The provider was shared across the two time windows.
+
+**Before task recovery**
+
+| Input | Route | Elapsed | Result | Model calls | Task retries / splits | Reported input / output tokens |
+| --- | --- | ---: | --- | ---: | ---: | ---: |
+| Training | Legacy | 1:10 | 23/23 checks | 3 | — | 5,902 / 6,031 |
+| Training | Paired | 2:34 | API timeout · `multi_gap_hunter_individual` | 10 | — | 23,380 / 9,200 (partial) |
+| Training | Direct | 2:32 | API timeout · `multi_scenario_builder_set` | 11 | — | 26,787 / 10,541 (partial) |
+| Organizer | Legacy | 2:42 | API timeout · `set` | 10 | — | 31,730 / 13,284 (partial) |
+| Organizer | Paired | 2:02 | API timeout · `extraction` | 2 | — | 3,267 / 1,660 (partial) |
+| Organizer | Direct | 2:29 | validation error · `multi_logic_inspector_individual` | 12 | — | 59,438 / 18,403 (partial) |
+| Stress PDF | Legacy | 2:02 | API timeout · `extraction` | 3 | — | 0 / 0 (partial) |
+| Stress PDF | Paired | 2:02 | API timeout · `extraction` | 3 | — | 0 / 0 (partial) |
+| Stress PDF | Direct | 2:02 | API timeout · `extraction` | 3 | — | 0 / 0 (partial) |
+
+**With task recovery**
+
+| Input | Route | Elapsed | Result | Model calls | Task retries / splits | Reported input / output tokens |
+| --- | --- | ---: | --- | ---: | ---: | ---: |
+| Training | Legacy | 4:04 | API timeout · `extraction` | 2 | 1 / 0 | 0 / 0 (partial) |
+| Training | Paired | 4:04 | API timeout · `extraction` | 2 | 1 / 0 | 0 / 0 (partial) |
+| Training | Direct | 4:00 | 32/32 checks | 14 | 1 / 0 | 42,727 / 13,146 (partial) |
+| Organizer | Legacy | 8:20 | 25/25 checks | 21 | 5 / 0 | 106,197 / 38,504 (partial) |
+| Organizer | Paired | 11:17 | expert deadline · `multi_gap_hunter_set` | 26 | 12 / 0 | 75,575 / 18,445 (partial) |
+| Organizer | Direct | 4:04 | API timeout · `extraction` | 4 | 2 / 0 | 0 / 0 (partial) |
+| Stress PDF | Legacy | 10:24 | review failed | 24 | 9 / 0 | 55,868 / 29,347 (partial) |
+| Stress PDF | Paired | 0:53 | connection error · `extraction` | 5 | 2 / 0 | 0 / 0 (partial) |
+| Stress PDF | Direct | 11:17 | expert deadline · `multi_gap_hunter_individual` | 35 | 6 / 0 | 174,518 / 65,645 (partial) |
+
+**Coverage and quality of completed reports**
+
+| Series | Input | Route | Requirements | Individual / set / readiness cells | Findings with citations | Matched obligations | Matched defect themes | Verdict |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Before task recovery | Training | Legacy | 6 | 54 / 6 / 15 | 10/10 | 6/6 | 4/4 | `not_ready` |
+| With task recovery | Training | Direct | 6 | 54 / 6 / 15 | 19/19 | 6/6 | 4/4 | `not_ready` |
+| With task recovery | Organizer | Legacy | 51 | 459 / 6 / 15 | 60/60 | 25/26 | 4/6 | `not_ready` |
+
+Each completed report passed its independent audit against the original, including checks on the exact mode, citations, requirement coverage and the full readiness checklist. The training labels cover four injected defects. On source lines 5–6, the same access-hours conflict appeared twice in the original Legacy report and three times in the Direct report with recovery. The organizer annotations are retrospective. The stress PDF has no independent defect labels and produced no report. Precision and defect recall on that input remain unknown.
+
+The first series produced one audited report in nine trials. With recovery, two of nine produced audited reports. Both successful recovery runs included a network retry. The paired route previously produced an audited organizer report in a separate two-mode trial. One cold attempt per cell does not establish comparative reliability or speed.
+
+The provider reported at least 150,504 input and 59,119 output tokens across 57 calls before recovery, and at least 454,885 input and 165,087 output tokens across 133 calls after recovery. This includes failed trials. Missing usage from a failed call is unknown, including when the recorded subtotal is zero. Monetary cost is unavailable. The CLI recorded 39 task-level network retries and no live batch splits. Regression tests exercised splitting after repeated validation errors and reuse of validated child results. The two 11:17 outcomes reached the expert deadline with time reserved for finalization. The Direct stress run retained 22 validated stage responses. The Legacy stress run stopped with a generic failure after nine retries, so its terminal cause remains unattributed.
 
 ## Historical legacy versus paired measurement on GPT-6 Luna
 
