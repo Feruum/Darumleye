@@ -56,7 +56,7 @@ For a document within the full-context review limits, an explicit acceptance-sce
 
 ## Reproduce a run
 
-Install Python 3.12+ and uv. Copy the repository-root `.env.example` to `.env`. Set the key issued for the configured endpoint. The example uses `openai/gpt-6-luna` on OpenRouter and defaults to `multi_agent` for new reviews. Set `AGENT_SPEC_REVIEW_REASONING_EFFORT=low` for inexpensive extraction, expert review, paired validators, finalization and re-review. The final evidence adjudicator has its own `AGENT_SPEC_REVIEW_ADJUDICATION_REASONING_EFFORT` setting (`auto` selects low for complete routine low-severity batches and medium for contested cases on Luna and GLM-5.3, while `inherit` uses the common setting). All calls still share the same concurrency limit and deadline.
+Install Python 3.12+ and uv. Copy the repository-root `.env.example` to `.env` and set `AGENT_LLM_API_KEY` to the key issued for the configured endpoint. The example uses `openai/gpt-6-luna` on OpenRouter and defaults to `multi_agent` for new reviews. Set `AGENT_SPEC_REVIEW_REASONING_EFFORT=low` for inexpensive extraction, expert review, paired validators, finalization and re-review. The final evidence adjudicator has its own `AGENT_SPEC_REVIEW_ADJUDICATION_REASONING_EFFORT` setting (`auto` selects low for complete routine low-severity batches and medium for contested cases on Luna and GLM-5.3, while `inherit` uses the common setting). All calls still share the same concurrency limit and deadline.
 
 Both multi-agent modes send every consolidated observation to an independent counterevidence search. The search returns source excerpts for exceptions, superseding rules, ownership and scope. The adjudicator verifies each observation against the source and the retrieved passages. When the search times out, the adjudicator reviews the available source directly. Only confirmed defect roots enter `findings`, severity counts, Drex and the fix workflow. A withdrawn contradiction requires a source-grounded explanation showing how both rules apply to the same case. The final root comparison selects findings with a common requirement or overlapping source units, validates both citations and retains all original observations. When there are no eligible pairs, it skips the model call.
 
@@ -72,22 +72,24 @@ The deterministic checks additionally recognize explicit unfilled values and imp
 
 The full profile can build a shared-input witness for explicit count and Boolean conditions. For example, two rules for the same entity can overlap at twelve places when one uses `не менее 12` and the other uses `не более 12`. Z3 models named counts as nonnegative integers and preserves the case of named Boolean fields. The parser checks the complete source unit so an omitted trailing exception cannot enter a proof. Experts receive each witness with both original excerpts.
 
-From the repository root:
+From the repository root, run the agent on the [included organizer specification](https://github.com/Feruum/Darumleye/blob/main/docs/requirements.md).
 
 ```bash
-uv run --project vibe/services/agent --frozen python -m agent.spec_review_cli --input .artifacts/requirements.md --output .artifacts/report.md --env-file .env
+uv run --project vibe/services/agent --frozen python main.py --input docs/requirements.md --output report.md --env-file .env --timeout-seconds 900 --checkpoint-dir .artifacts/checkpoints --wait-rate-limit
 ```
 
-Download the official `docs/requirements.md` separately into `.artifacts/requirements.md` from the organizers' repository. The sample under `vibe/docs/examples/` is synthetic and is not the official case. The command uses the current paired default. Pass `--review-mode multi_agent_direct` for direct validation or `--review-mode legacy` for classic review. Set the mode explicitly in each comparison trial. Choose `.json` instead of `.md` to save the structured output. The CLI needs no web server. For a full offline-invoked evaluation with a slow model, pass `--timeout-seconds 900` to allow up to 15 minutes without changing the web service deadline. Document-only review needs no database; selected reference files use a local persistent Chroma index (default `.artifacts/reference-chroma`, override with `--reference-index PATH`). It writes the report only after completing and validating the stages. A model error or invalid document results in a nonzero exit status.
+The command writes a new `report.md` at the repository root. The [submitted report](https://github.com/Feruum/Darumleye/blob/main/docs/report.md) was generated from the same input by agent revision `300fee8`. The example above uses paired validation, allows up to 15 minutes for the review and saves validated stage outputs in `.artifacts/checkpoints` so the same command can resume an interrupted run.
+
+Pass `--review-mode multi_agent_direct` for direct validation or `--review-mode legacy` for classic review. Set the mode explicitly in each comparison trial. Choose a `.json` output path to save the structured report and Evidence Graph. Document-only review runs locally with the configured LLM. When reference files are selected, the CLI uses a persistent Chroma index at `.artifacts/reference-chroma` by default. Override it with `--reference-index PATH`. The CLI writes the report after validating the stages and returns a nonzero exit status on model or input errors.
 
 ## Complete organizer evaluation
 
-The public organizer repository contains one requirements document and the scoring/report criteria in its README, not an executable eval runner or a labeled gold set. Download the original document separately and verify its SHA-256. For a long live run, the following example explicitly limits the provider to one primary call at a time and enables checkpoints:
+The [organizers' README](https://github.com/BCC-HUB/ai-requirements-validator-task) gives the quality criteria and required report sections. This project provides the structural evaluation script and publishes the generated Markdown report. To run the structural audit on a new review, first generate your own JSON report from the included specification. This example uses one primary model call at a time and writes the checkpoints and JSON under `.artifacts/`.
 
 ```bash
 AGENT_SPEC_REVIEW_CONCURRENCY=1 AGENT_LLM_TIMEOUT_SECONDS=120 AGENT_LLM_MAX_RETRIES=0 \
-  uv run --project vibe/services/agent --frozen python -m agent.spec_review_cli \
-  --input .artifacts/requirements.md --output .artifacts/official-report.json \
+  uv run --project vibe/services/agent --frozen python main.py \
+  --input docs/requirements.md --output .artifacts/official-report.json \
   --env-file .env --review-mode multi_agent --timeout-seconds 900 \
   --checkpoint-dir .artifacts/official-checkpoints --wait-rate-limit
 ```
@@ -100,7 +102,7 @@ Independently audit a completed JSON report against the original:
 
 ```bash
 uv run --project vibe/services/agent --frozen python vibe/services/agent/scripts/evaluate_spec_report.py \
-  --input .artifacts/requirements.md --report .artifacts/official-report.json \
+  --input docs/requirements.md --report .artifacts/official-report.json \
   --output .artifacts/official-eval.json --official
 ```
 
