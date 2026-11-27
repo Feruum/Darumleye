@@ -1,0 +1,2 @@
+# Install the agent and the dependencies declared in its pyproject.toml.
+./vibe/services/agent

@@ -39,22 +39,15 @@ cp .env.example .env
 
 Допускается другой OpenAI-совместимый провайдер: задайте `AGENT_LLM_BASE_URL`, `AGENT_LLM_MODEL` и соответствующий ключ. Модель должна поддерживать JSON output. Контрольные измерения относятся к Luna, а не ко всем возможным моделям. Не коммитьте `.env` и API-ключи.
 
-### 2. Получите выданное ТЗ
+### 2. Запустите проверку одной командой
 
-Скачайте [официальный документ организаторов](https://github.com/BCC-HUB/ai-requirements-validator-task/blob/main/docs/requirements.md) в `.artifacts/requirements.md`:
-
-```bash
-mkdir -p .artifacts
-curl -fL https://raw.githubusercontent.com/BCC-HUB/ai-requirements-validator-task/main/docs/requirements.md -o .artifacts/requirements.md
-```
-
-### 3. Запустите проверку одной командой
+Выданное организаторами ТЗ уже лежит в [docs/requirements.md](docs/requirements.md). Из корня репозитория выполните команду ниже. При первом запуске uv установит зависимости из `vibe/services/agent/uv.lock`.
 
 ```bash
-uv run --project vibe/services/agent --frozen python -m agent.spec_review_cli --input .artifacts/requirements.md --output .artifacts/report.md --env-file .env --timeout-seconds 900 --checkpoint-dir .artifacts/checkpoints --wait-rate-limit
+uv run --project vibe/services/agent --frozen python main.py --input docs/requirements.md --output report.md --env-file .env --timeout-seconds 900 --checkpoint-dir .artifacts/checkpoints --wait-rate-limit
 ```
 
-Готовый отчёт появится по указанному пути. Расширение `.json` в `--output` сохраняет структурированный отчёт вместе с полным Evidence Graph. Используйте `--review-mode multi_agent_direct` для прямой валидации или `--review-mode legacy` для классического режима. По умолчанию выбран `multi_agent`.
+Агент запишет результат в `report.md`. [Сохранённый отчёт для жюри](docs/report.md) создан агентом по этому же ТЗ на версии [300fee8](https://github.com/Feruum/Darumleye/commit/300fee84a59800a709def0728be67dd101277251). Расширение `.json` в `--output` сохраняет структурированный отчёт вместе с полным Evidence Graph. По умолчанию выбран режим `multi_agent`. Используйте `--review-mode multi_agent_direct` для прямой валидации или `--review-mode legacy` для классического режима.
 
 CLI выводит этапы разбора, извлечения и проверки, прогресс запросов экспертов, краткую статистику, Critical/High, вердикт и путь сохранённого отчёта. Для автоматизации доступны `--quiet` (только путь отчёта), `--print-report` (содержимое в stdout, прогресс в stderr), короткие параметры `-i` / `-o` и позиционный путь к документу. При прерывании достаточно повторить ту же команду с тем же каталогом контрольных точек. Для воспроизводимых измерений используйте также `--metrics-output .artifacts/run-metrics.json`; справка доступна через `python -m agent.spec_review_cli --help` в окружении агента.
 
@@ -499,7 +492,7 @@ Spec Review объединяет **аудит требований, доказа
 
 ```bash
 uv run --project vibe/services/agent --frozen python vibe/services/agent/scripts/evaluate_spec_report.py \
-  --input .artifacts/requirements.md --report .artifacts/report.json --output .artifacts/report-audit.json
+  --input docs/requirements.md --report .artifacts/report.json --output .artifacts/report-audit.json
 python3 vibe/services/agent/scripts/audit_review_retention.py \
   --report .artifacts/report.json
 ```

@@ -1,2 +1,6 @@
 # Linux containers execute these files directly, including Windows bind mounts.
 *.sh text eol=lf
+
+# Preserve the submitted document hash and the exact Markdown emitted by the CLI.
+docs/requirements.md text eol=lf
+docs/report.md text eol=lf
