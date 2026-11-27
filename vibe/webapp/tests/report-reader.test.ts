@@ -81,6 +81,15 @@ test('repeated findings share one review card and source marker without changing
   expect(markup).not.toContain('Текст цитаты')
 })
 
+test('a grounded rating takes precedence over a provisional rating of the same level on a grouped card', async () => {
+  const report = agentSpecReviewSchema.parse(await Bun.file(new URL('../src/features/agent/examples/fintech-payment-review.json', import.meta.url)).json())
+  const first = reviewFindingsWithDecisions(report)[0]!
+  const provisional = { ...first, finding: { ...first.finding, severity_provisional: true } }
+  const grounded = { ...first, id: 'D-002', finding: { ...first.finding, severity_provisional: false } }
+  expect(groupReviewFindings([provisional])[0]!.finding.severity_provisional).toBe(true)
+  expect(groupReviewFindings([provisional, grounded])[0]!.finding.severity_provisional).toBe(false)
+})
+
 test('different issues at the same citation and findings with different evidence are not merged', async () => {
   const report = agentSpecReviewSchema.parse(await Bun.file(new URL('../src/features/agent/examples/fintech-payment-review.json', import.meta.url)).json())
   const first = reviewFindingsWithDecisions(report)[0]!

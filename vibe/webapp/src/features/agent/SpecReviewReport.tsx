@@ -57,6 +57,7 @@ function FindingContent({ entry, source, activeEvidence, onShow, showQuote, omit
   const { finding } = entry
   const evidence = finding.evidence.filter((item) => !sameEvidence(item, omitEvidence))
   return <div className="sr-reader-finding-content">
+    {finding.severity_provisional && <Typography as="p" variant="caption">Критичность предварительная. Требуется уточнить последствия дефекта.</Typography>}
     <div><Typography as="h4" variant="bodySmMedium">Проблема</Typography><Typography as="p" variant="bodySm">{finding.issue}</Typography></div>
     <div><Typography as="h4" variant="bodySmMedium">Что исправить</Typography><Typography as="p" variant="bodySm">{finding.recommendation}</Typography></div>
     {finding.criteria?.length ? <Typography as="p" variant="caption">Критерии: {finding.criteria.join(' · ')}</Typography> : null}

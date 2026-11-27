@@ -19,7 +19,7 @@ from typing import Annotated, Literal, TypedDict
 import structlog
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
-from pydantic import Field
+from pydantic import Field, ValidationError, field_validator
 
 from agent.services.spec_document import Specification, normalize_quote
 from agent.services.spec_stage_retry import is_transient_provider_error
@@ -30,7 +30,7 @@ from agent.services.spec_evidence_graph import (
 from agent.services.spec_review import (
     COMMON, FINDINGS, SEVERITY_RUBRIC, INDIVIDUAL_CRITERIA, READINESS_CRITERIA, READINESS_PROMPT,
     REVIEW_CONCURRENCY, SET_CRITERIA, SEVERITY_ORDER, Check, Evidence, Finding, IndividualDraft,
-    Passport, ReadinessCheck, Requirement, ReviewPipelineError, ReviewProviderRateLimit, ReviewReport, ReviewNote,
+    Passport, ReadinessCheck, ReportFinding, Requirement, ReviewPipelineError, ReviewProviderRateLimit, ReviewReport, ReviewNote,
     SetCheck, SetDraft, StructuredReview, _correction_reason,
     anchor_missing_finding, apply_code_set_checks, checked_readiness, clarification_questions,
     compare_references, extract_requirements, invoke_stage, ordered_checks,
@@ -244,6 +244,12 @@ class CounterevidenceDraft(StructuredReview):
     rows: list[CounterevidenceRow] = Field(max_length=ADJUDICATION_BATCH_SIZE)
 
 
+class RulePriority(StructuredReview):
+    prevailing_rule: Literal["first_rule", "second_rule"]
+    prevailing_anchor: str = Field(min_length=2, max_length=400)
+    displaced_anchor: str = Field(min_length=2, max_length=400)
+
+
 class ConflictResolution(StructuredReview):
     case: str = Field(min_length=5, max_length=450)
     first_rule: str = Field(min_length=3, max_length=1200)
@@ -252,10 +258,40 @@ class ConflictResolution(StructuredReview):
                    "explicit_alternative", "explicit_exception", "explicit_precedence"]
     decisive_clause: str = Field(min_length=3, max_length=1200)
     operative_term: str | None = Field(default=None, min_length=2, max_length=400)
+    priority: RulePriority | None = None
 
 
 class AcceptanceBasis(AcceptanceRule):
     case: str = Field(min_length=5, max_length=450)
+
+
+class SeverityBasis(StructuredReview):
+    effect: Literal["incompatible_actions", "missing_operational_result", "acceptance_detail", "editorial"]
+    scope: Literal["bounded_case", "whole_required_operation", "severe_business_harm"]
+    scope_quote: str = Field(min_length=3, max_length=4000)
+
+    def grounded(self, evidence: list[Evidence], specification: Specification) -> bool:
+        quote = normalize_quote(self.scope_quote)
+        if not any(char.isalnum() for char in quote):
+            return False
+        phrase = re.compile(r"(?<!\w)" + re.escape(quote) + r"(?!\w)")
+        contexts = [
+            "\n".join(specification.units[item.start - 1:item.end])
+            for item in evidence if phrase.search(normalize_quote(item.quote))
+        ]
+        if not any(phrase.search(normalize_quote(context)) for context in contexts):
+            return False
+        if self.scope == "bounded_case" or len(quote.split()) >= 3:
+            return True
+        # A field name or a bound cut out of a longer clause cannot justify
+        # escalating the scope. A complete short source statement still can.
+        separators = " -*•.:;!?|。！？"
+        short_rule = quote.strip(separators)
+        return any(
+            short_rule == normalize_quote(clause).strip(separators)
+            for context in contexts
+            for clause in (context, *re.split(r"[.:;!?|。！？\n]", context))
+        )
 
 
 class AdjudicationDecision(StructuredReview):
@@ -266,6 +302,35 @@ class AdjudicationDecision(StructuredReview):
     evidence: list[Evidence] = Field(default_factory=list, max_length=8)
     conflict_resolution: ConflictResolution | None = None
     acceptance_basis: AcceptanceBasis | None = None
+    severity_basis: SeverityBasis | None = None
+
+    @field_validator("severity_basis", mode="wrap")
+    @classmethod
+    def read_severity_basis(cls, value, handler):
+        # An incomplete impact assessment must not discard the independently
+        # validated defect or trigger a paid rerun of its whole batch.
+        try:
+            return handler(value)
+        except ValidationError:
+            return None
+
+    def calibrate_severity(self, specification: Specification, *, has_conflict: bool) -> None:
+        """Called for a confirmed defect after verifying its decision evidence."""
+        basis = self.severity_basis
+        if basis and basis.grounded(self.evidence, specification):
+            if basis.effect == "editorial":
+                self.severity = "low"
+            elif basis.scope == "severe_business_harm":
+                self.severity = "critical"
+            elif basis.effect == "acceptance_detail":
+                self.severity = "medium"
+            elif basis.scope == "whole_required_operation":
+                self.severity = "critical"
+            else:
+                self.severity = "high"
+            return
+        self.severity_basis = None
+        self.severity = "high" if has_conflict else "medium"
 
 
 class AdjudicationDraft(StructuredReview):
@@ -565,6 +630,27 @@ def validate_conflict_resolution(row: AdjudicationDecision) -> None:
     if proof.basis in {"explicit_alternative", "explicit_exception", "explicit_precedence"}:
         if not proof.operative_term or normalize_quote(proof.operative_term) not in normalize_quote(proof.decisive_clause):
             raise ValueError("Name the actual alternative, exception or precedence from the decisive clause")
+    if proof.basis in {"explicit_exception", "explicit_precedence"}:
+        error = "Bind the governing clause to both the prevailing and the displaced rule"
+        priority = proof.priority
+        if priority is None:
+            raise ValueError(error)
+        winner, displaced = proof.first_rule, proof.second_rule
+        if priority.prevailing_rule == "second_rule":
+            winner, displaced = displaced, winner
+        # A real quotation of an unqualified "unless specified otherwise" does
+        # not establish which of two overlapping obligations prevails.
+        def anchor_pattern(phrase: str) -> re.Pattern:
+            literal = re.escape(normalize_quote(phrase))
+            return re.compile(rf"(?<!\w)(?<!\w[.-]){literal}(?!\w|[.-]\w)")
+
+        winning_anchor = anchor_pattern(priority.prevailing_anchor)
+        displaced_anchor = anchor_pattern(priority.displaced_anchor)
+        winner, displaced, clause = map(normalize_quote, (winner, displaced, proof.decisive_clause))
+        if (not winning_anchor.search(winner) or not displaced_anchor.search(displaced)
+                or not winning_anchor.search(clause) or not displaced_anchor.search(clause)
+                or (winning_anchor.search(displaced) and displaced_anchor.search(winner))):
+            raise ValueError(error)
 
 
 def validate_acceptance_basis(decision: AdjudicationDecision, challenge: CounterevidenceRow) -> None:
@@ -1639,6 +1725,8 @@ def _build_graph(report, groups, disputes, group_conflicts, reference, fallback,
         description = finding.recommendation
         if decision:
             description += "\nАрбитраж: " + ("Подтверждено. " if decision.status == "confirmed" else "Неопределённо. ") + decision.rationale
+            if decision.status == "confirmed" and decision.severity_basis is None:
+                description += "\nУровень предварительный. Область последствий требует подтверждения по ТЗ."
         for other in group.merged_decisions:
             description += f"\nПодтверждённая группа {other.id} ({other.severity}): {other.rationale}"
         for reason in group.merge_reasons:
@@ -2574,6 +2662,11 @@ explicit exception, alternative or precedence as decisive only when the
 text grants it for this same case. Compare rules with different referents
 using their original wording. Do not invent a workaround to reject a claim,
 or confirm a claim merely because an attempted rebuttal failed.
+A general proviso to observe other applicable rules is compatible with either
+reading of a contradiction. If both obligations expressly cover the same
+case, a narrower or later requirement does not win merely by being narrower
+or later. Find the direction of priority in the source. If neither obligation
+yields and the outcomes are incompatible, confirm the source-backed conflict.
 Determine which actor owns each obligation and review the entire stated
 business process. A mandatory decision assigned to a person must be possible
 and verifiable with the available information just as a system decision must.
@@ -2638,7 +2731,23 @@ designated. Its existence need not be proved by reproducing its contents in
 the specification. Preserve uncertainty when its availability cannot be assessed.
 Consider the passages from the separate counterevidence search. Verify their
 scope yourself. An empty search cannot prove that a rule is absent.
-Use confirmed with a calibrated severity and exact supporting quotations.
+For each confirmed defect give exact supporting quotations and severity_basis:
+{"effect":"incompatible_actions|missing_operational_result|acceptance_detail|editorial",
+"scope":"bounded_case|whole_required_operation|severe_business_harm","scope_quote":"literal source excerpt"}.
+Choose the effect first. Opposing mandated actions for the same input are
+incompatible_actions. A branch that must finish but has no defined business
+result is missing_operational_result. A selection among already eligible
+results, an omitted equality case, a display detail or an unspecified quality
+threshold is acceptance_detail when the underlying action is specified.
+Assess scope independently. Try an ordinary input outside the disputed
+condition. If that path still works, use bounded_case. A mandatory case
+alone does not make the entire operation impossible. For whole_required_operation,
+quote the obligation that cannot operate even for ordinary inputs. For
+severe_business_harm, quote the operative clause establishing the material consequence;
+a generic possibility of loss does not qualify. For bounded_case, quote the
+affected condition or obligation. Copy scope_quote from this decision's verified
+evidence. Explain the concrete effect and its reach in the Russian rationale.
+The application calculates final severity from this basis.
 Use recommendation for a source-related optional improvement where the current
 obligation can be accepted without the proposed change. Cite its context.
 Use uncertain for a genuine unresolved question about whether the alleged
@@ -2667,6 +2776,18 @@ that clause, otherwise null"}. Use one listed basis. Both rules and the
 decisive clause must be literal fragments of this decision's evidence. For
 an explicit resolution quote the precise permission, including its applicable
 conditions. Explain in rationale how that clause reconciles the same case.
+For explicit_exception and explicit_precedence include priority with
+prevailing_rule ("first_rule" or "second_rule"), prevailing_anchor and
+displaced_anchor. Each anchor is a short, verbatim rule ID, condition or
+outcome identifying its respective rule. Both must appear in the same
+decisive passage as the operative term establishing priority. Use source
+rule IDs (include them in the premise quotes) where the passage refers to
+IDs. For an inline carve-out, quote the qualified obligation complete with
+its exception. Anchors common to both readings do not identify a winner.
+Do not assemble an apparent priority clause by joining unrelated sentences
+or use a mandatory outcome itself as a term of precedence. Do not relabel
+overlapping obligations as different_scope when one explicitly includes
+the other's case. Other bases do not require priority.
 If reconciliation needs a new channel or rule it is a proposed repair.
 For other decisions omit conflict_resolution.
 
@@ -2718,7 +2839,10 @@ other sections. For overlapping obligations, search for the literal means,
 permission, exception or precedence that lets the same actor obtain the same
 result in the disputed time/state. A route in another case is not evidence
 of an alternative for this one. If no actual resolution appears, do not
-propose a new design as counterevidence. For an alleged missing operation, find the operative trigger
+propose a new design as counterevidence. Look for a rule that actually
+subordinates one obligation to the other. A blanket referral to other rules
+does not by itself identify which rule governs the shared case.
+For an alleged missing operation, find the operative trigger
 and result. For an alleged missing dependency, distinguish the origin of a
 required value from the actual available input, lookup or mapping. Return the
 relevant contract passages even if they only partially resolve the claim. Return exactly one row per supplied id. Cite only passages
@@ -2802,9 +2926,10 @@ Add the optional fields above to the relevant row only.
                     if row.id in challenges:
                         validate_acceptance_basis(row, challenges[row.id])
                     if row.status == "confirmed":
-                        if not row.severity or not row.evidence:
+                        if not row.evidence:
                             raise ValueError("Confirmed assessment requires severity and evidence")
-                        if (row.severity == "critical" and any(obs.finding.kind == "conflict" for obs in group.observations)
+                        row.calibrate_severity(specification, has_conflict=row.id in conflict_ids)
+                        if (row.severity == "critical" and row.id in conflict_ids
                                 and len({normalize_quote(e.quote) for e in row.evidence}) < 2):
                             raise ValueError("Critical conflict requires both source rules")
                     elif row.severity is not None or (row.status in {"unsupported", "recommendation"} and not row.evidence):
@@ -3091,7 +3216,14 @@ severity, invent evidence, or delete observations.
 
     async def verdict(state):
         requirements, groups = state["requirements"], state["groups"]
-        findings = [group.finding() for group in groups]
+        findings = []
+        for group in groups:
+            finding = ReportFinding.model_validate(group.finding())
+            decisions = (group.adjudication, *group.merged_decisions)
+            finding.severity_provisional = not any(
+                row and row.severity == finding.severity and row.severity_basis for row in decisions
+            )
+            findings.append(finding)
         set_checks, readiness = state["set_checks"], state["readiness"]
         gaps = state["extraction_gaps"]
         reference = state["reference"]

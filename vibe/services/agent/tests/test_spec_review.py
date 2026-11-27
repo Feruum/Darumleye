@@ -123,6 +123,8 @@ def expert_reply(data, observations=()):
         return {"rows": [{"id": row["id"], "evidence": []} for row in data["findings"]]}
     if stage == "multi_adjudicate":
         return {"decisions": [{"id": row["id"], "status": "confirmed", "severity": row["severity"],
+                              "severity_basis": {"effect": "missing_operational_result", "scope": "bounded_case",
+                                                 "scope_quote": row["evidence"][0]["quote"]} if row["evidence"] else None,
                               "rationale": "Подтверждено исходным текстом.", "evidence": row["evidence"]}
                              for row in data["findings"]]}
     if stage.endswith("_individual"):
@@ -411,10 +413,14 @@ def test_review_sends_all_lines_and_returns_complete_report(
     report = response.json()
     assert report["source"] == extension
     assert report["passport"]["model"] == "fixture"
+    # The expert proposes critical. The direct-mode arbiter establishes a
+    # missing outcome only for retries after timeout.
+    expected_level = "critical" if mode == "legacy" else "high"
+    assert report["findings"][0]["severity"] == expected_level
     assert report["statistics"] == {
         "requirements": 2,
         "violations": 1,
-        "critical": 1,
+        "critical": int(expected_level == "critical"),
         "passed": 1,
         "needs_revision": 1,
     }

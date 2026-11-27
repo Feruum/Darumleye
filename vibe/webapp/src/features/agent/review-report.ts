@@ -52,7 +52,10 @@ export function groupReviewFindings(entries: readonly IndexedReviewFinding[]): G
       continue
     }
     existing.members.push(entry)
-    if (severityRank[entry.finding.severity] > severityRank[existing.finding.severity]) {
+    const higherLevel = severityRank[entry.finding.severity] > severityRank[existing.finding.severity]
+    const groundedAtSameLevel = entry.finding.severity === existing.finding.severity
+      && existing.finding.severity_provisional && entry.finding.severity_provisional === false
+    if (higherLevel || groundedAtSameLevel) {
       existing.finding = { ...entry.finding, evidence: uniqueEvidence(entry.finding.evidence) }
       existing.assessment = entry.assessment
     }

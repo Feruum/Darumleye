@@ -59,6 +59,8 @@ class ExpertChat:
             result = {"rows": [{"id": row["id"], "evidence": []} for row in data["findings"]]}
         elif stage == "multi_adjudicate":
             result = {"decisions": [{"id": row["id"], "status": "confirmed", "severity": row["severity"],
+                                      "severity_basis": {"effect": "missing_operational_result", "scope": "bounded_case",
+                                                         "scope_quote": row["evidence"][0]["quote"]} if row["evidence"] else None,
                                       "rationale": "Подтверждено исходным текстом.", "evidence": row["evidence"][:1]}
                                      for row in data["findings"]]}
         else:
@@ -156,11 +158,30 @@ def source():
 
 
 @pytest.mark.asyncio
+async def test_unsubstantiated_severity_is_marked_in_published_finding_and_markdown():
+    def omit_basis(data, result):
+        if data["stage"] == "multi_adjudicate":
+            for decision in result["decisions"]:
+                decision.pop("severity_basis", None)
+
+    report = await review_specification(source(), VariantChat(omit_basis), review_mode="multi_agent_direct")
+    finding, = report.model_dump()["findings"]
+    assert finding["severity_provisional"] is True
+    assert "предварительная оценка" in report.report_markdown
+    historical = report.model_dump()
+    del historical["findings"][0]["severity_provisional"]
+    assert not type(report).model_validate(historical).findings[0].severity_provisional
+
+
+@pytest.mark.asyncio
 async def test_final_adjudication_reclassifies_blocking_conflict_and_preserves_original_severity():
-    second = {"start": 2, "end": 2, "quote": "R-2. Отобразить дату."}
+    second = {"start": 2, "end": 2, "quote": "R-2. Запрещено предоставлять выписку по любому запросу."}
+    spec = extract_specification("fixture.txt", "text/plain", (ANCHOR["quote"] + "\n" + second["quote"]).encode())
 
     def variant(data, result):
-        if data["stage"] == "multi_logic_inspector_set":
+        if data["stage"] == "extraction":
+            result["requirements"][1].update(text=second["quote"], evidence=second)
+        elif data["stage"] == "multi_logic_inspector_set":
             result["findings"] = [{"kind": "conflict", "severity": "medium", "issue": "Несовместимые результаты.",
                 "recommendation": "Согласовать результат.", "evidence": [ANCHOR, second],
                 "requirement_ids": ["R-001", "R-002"], "criteria": ["Согласованность"]}]
@@ -168,10 +189,12 @@ async def test_final_adjudication_reclassifies_blocking_conflict_and_preserves_o
             result["findings"] = []
         elif data["stage"] == "multi_adjudicate":
             result["decisions"] = [{"id": row["id"], "status": "confirmed", "severity": "critical",
+                "severity_basis": {"effect": "incompatible_actions", "scope": "whole_required_operation",
+                                   "scope_quote": second["quote"]},
                 "rationale": "Обязательные результаты несовместимы; приёмка невозможна.",
                 "evidence": [ANCHOR, second]} for row in data["findings"]]
 
-    report = await review_specification(source(), VariantChat(variant), review_mode="multi_agent_direct")
+    report = await review_specification(spec, VariantChat(variant), review_mode="multi_agent_direct")
     assert report.statistics.critical == 1
     assert report.verdict.status == "not_ready"
     assert report.findings[0].severity == "critical"
@@ -1386,6 +1409,8 @@ async def test_withdrawing_conflict_requires_documented_means_for_same_case(docu
             else:
                 result["decisions"] = [{
                     "id": row["id"], "status": "confirmed", "severity": "high",
+                    "severity_basis": {"effect": "incompatible_actions", "scope": "bounded_case",
+                                       "scope_quote": first["quote"]},
                     "rationale": "Во время калибровки замер обязателен, а его регистрация блокируется.",
                     "evidence": [first, second],
                 }]
@@ -1474,6 +1499,8 @@ async def test_acceptance_boundary_requires_distinct_source_basis(
             status = initial_status if attempts == 1 else final_status
             row.update(status=status, severity="medium" if status == "confirmed" else None,
                        rationale=claim, evidence=evidence)
+            row["severity_basis"] = {"effect": "acceptance_detail", "scope": "bounded_case",
+                                     "scope_quote": premise} if status == "confirmed" else None
             if attempts == 1:
                 # Every phrase is literal. Only the independent reader can
                 # attest that a distinct operative clause governs this case.

@@ -138,6 +138,7 @@ const agentSpecEvidenceSchema = z.object({
 const agentSpecFindingSchema = z.object({
   kind: z.enum(['missing', 'ambiguous', 'conflict', 'untestable', 'other']),
   severity: z.enum(['critical', 'high', 'medium', 'low']),
+  severity_provisional: z.boolean().optional(),
   issue: z.string().min(1),
   recommendation: z.string().min(1),
   evidence: z.array(agentSpecEvidenceSchema),

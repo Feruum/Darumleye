@@ -229,7 +229,7 @@ def render_markdown(report: "ReviewReport") -> str:
             [
                 f"### D-{index:03d} — {KIND[finding.kind]}",
                 "",
-                f"- **Критичность:** {SEVERITY[finding.severity]}",
+                f"- **Критичность:** {SEVERITY[finding.severity]}" + (" (предварительная оценка)" if finding.severity_provisional else ""),
                 f"- **Требования:** {', '.join(finding.requirement_ids) or 'Набор в целом'}",
                 f"- **Нарушение:** {safe_text(finding.issue)}",
                 f"- **Что исправить:** {safe_text(finding.recommendation)}",
@@ -298,7 +298,11 @@ def render_markdown(report: "ReviewReport") -> str:
     ]
     if critical:
         lines.append("Блокирующие замечания критического и высокого приоритета. Счётчик критических нарушений в сводке учитывает только уровень Critical.")
-        lines.extend(f"- D-{i:03d} ({SEVERITY[f.severity]}): {safe_text(f.issue)}" for i, f in critical)
+        for i, finding in critical:
+            level = SEVERITY[finding.severity]
+            if finding.severity_provisional:
+                level += ", предварительная оценка"
+            lines.append(f"- D-{i:03d} ({level}): {safe_text(finding.issue)}")
     else:
         lines.append("Замечания критического или высокого приоритета не выявлены.")
     if report.clarification_questions:
