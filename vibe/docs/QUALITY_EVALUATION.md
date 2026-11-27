@@ -47,7 +47,7 @@ uv run --project vibe/services/agent --frozen python vibe/services/agent/scripts
   --output .artifacts/official-final-audit.json --official
 ```
 
-For a fresh independent live run from a clean checkout, use the separately downloaded source and the command in [Spec Review](SPEC_REVIEW.md#complete-organizer-evaluation). The number of defects and criterion counts need not repeat exactly on a fresh stochastic run.
+For a fresh independent live run from a clean checkout, use the [included organizer specification](https://github.com/Feruum/Darumleye/blob/main/docs/requirements.md) and the command in [Spec Review](SPEC_REVIEW.md#complete-organizer-evaluation). A fresh run can produce different findings and criterion counts.
 
 ## Extended fact and formal profile pilot
 

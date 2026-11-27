@@ -38,15 +38,15 @@ Local addresses: site `http://localhost:4321`, app `http://localhost:5173`, API 
 # Configure the OpenAI-compatible provider in the ignored root .env first.
 uv sync --project vibe/services/agent --frozen
 uv run --project vibe/services/agent --frozen python -m agent.spec_review_cli \
-  --input .artifacts/requirements.md --output .artifacts/official-report.json \
+  --input docs/requirements.md --output .artifacts/official-report.json \
   --env-file .env --review-mode multi_agent --timeout-seconds 900 \
   --checkpoint-dir .artifacts/official-checkpoints
 uv run --project vibe/services/agent --frozen python vibe/services/agent/scripts/evaluate_spec_report.py \
-  --input .artifacts/requirements.md --report .artifacts/official-report.json \
+  --input docs/requirements.md --report .artifacts/official-report.json \
   --output .artifacts/official-eval.json --official
 ```
 
-Use an actual downloaded [organizer input](https://github.com/BCC-HUB/ai-requirements-validator-task/blob/main/docs/requirements.md); the committed examples are synthetic. For a no-provider benchmark preview, use `compare_review_modes.py --dry-run --output-dir .artifacts/review-plan`. See [review modes and comparisons](QUALITY_EVALUATION.md#comparing-the-three-review-modes). The document-only CLI needs neither the web stack nor a database. Live LLM analyses consume provider credits.
+The commands use the [official specification included in the repository](https://github.com/Feruum/Darumleye/blob/main/docs/requirements.md). For a no-provider benchmark preview, use `compare_review_modes.py --dry-run --output-dir .artifacts/review-plan`. See [review modes and comparisons](QUALITY_EVALUATION.md#comparing-the-three-review-modes). The document-only CLI needs neither the web stack nor a database. Live LLM analyses consume provider credits.
 
 ## Turborepo
 
