@@ -233,8 +233,8 @@ export const agentEvidenceGraphSchema = z.object({
   experts: z.array(z.object({ role: agentEvidenceRoleSchema, status: z.enum(['completed', 'unavailable', 'skipped']), observations: z.number().int().nonnegative() }).strict()),
   finalization_status: z.enum(['completed', 'limited', 'deterministic_fallback']), unresolved_count: z.number().int().nonnegative(),
   adjudication: z.object({ candidates: z.number().int().nonnegative(), confirmed: z.number().int().nonnegative(),
-    unsupported: z.number().int().nonnegative(), uncertain: z.number().int().nonnegative(), unreviewed: z.number().int().nonnegative() }).strict()
-    .refine(a => a.confirmed + a.unsupported + a.uncertain + a.unreviewed === a.candidates, 'Invalid adjudication coverage counts.').nullish(),
+    recommendations: z.number().int().nonnegative().optional(), unsupported: z.number().int().nonnegative(), uncertain: z.number().int().nonnegative(), unreviewed: z.number().int().nonnegative() }).strict()
+    .refine(a => a.confirmed + (a.recommendations ?? 0) + a.unsupported + a.uncertain + a.unreviewed === a.candidates, 'Invalid adjudication coverage counts.').nullish(),
 }).strict().superRefine(({ nodes, edges, experts }, context) => {
   const byId = new Map(nodes.map(node => [node.id, node]))
   const ids = new Set(byId.keys())
@@ -417,6 +417,14 @@ export const agentSpecReviewSchema = z.object({
   report_markdown: z.string().min(1),
   readiness_checklist: z.array(agentSpecReadinessCheckSchema).length(readinessIds.length).optional(),
   clarification_questions: z.array(agentSpecClarificationSchema).optional(),
+  review_notes: z.array(z.object({
+    observation_ids: z.array(z.string().min(1)).min(1),
+    kind: z.enum(['recommendation', 'question']),
+    status: z.enum(['recommendation', 'uncertain', 'unreviewed']),
+    text: z.string().min(1), rationale: z.string().min(1),
+    requirement_ids: z.array(z.string().min(1)),
+    evidence: z.array(agentSpecEvidenceSchema), decision_evidence: z.array(agentSpecEvidenceSchema),
+  }).strict().refine(note => (note.kind === 'recommendation') === (note.status === 'recommendation'))).optional(),
   extraction_gaps: z.array(agentSpecEvidenceSchema).optional(),
   evidence_graph: agentEvidenceGraphSchema.nullish(),
 }).strict().superRefine(({ findings, requirements, readiness_checklist: checklist, clarification_questions: questions, extraction_gaps, verdict }, context) => {
@@ -496,9 +504,9 @@ export const agentSpecReviewSchema = z.object({
       !review.observations.every(observation => assessedIds.has(observation.id))) {
     context.addIssue({ code: 'custom', path: ['reference_review', 'decision_review', 'findings'], message: 'Completed reference decision review must assess every observation exactly once.' })
   }
-}).superRefine(({ passport, evidence_graph: graph, requirements, findings, clarification_questions, reference_review }, context) => {
+}).superRefine(({ passport, evidence_graph: graph, requirements, findings, clarification_questions, review_notes, verdict, reference_review }, context) => {
   if (!graph) {
-    if (passport.review_mode && passport.review_mode !== 'legacy') context.addIssue({ code: 'custom', path: ['evidence_graph'], message: 'Multi-agent review must preserve its evidence graph.' })
+    if (review_notes?.length || (passport.review_mode && passport.review_mode !== 'legacy')) context.addIssue({ code: 'custom', path: ['evidence_graph'], message: 'Multi-agent review must preserve its evidence graph.' })
     return
   }
   const requirementIds = new Set(requirements.map(item => item.id))
@@ -506,6 +514,32 @@ export const agentSpecReviewSchema = z.object({
   const questionIds = new Set((clarification_questions ?? []).map(item => item.id))
   const referenceIds = new Set((reference_review?.sources ?? []).map(item => item.id))
   const graphNodes = new Map(graph.nodes.map(node => [node.id, node]))
+  const reviewedOrigins = new Set<string>()
+  const citationKey = ({ start, end, quote }: z.infer<typeof agentSpecEvidenceSchema>) => JSON.stringify([start, end, quote])
+  const cited = new Map<string, Set<string>>()
+  if (review_notes?.length) {
+    for (const edge of graph.edges) {
+      const evidence = graphNodes.get(edge.target)
+      if (edge.kind !== 'cites' || evidence?.source_id || !evidence?.evidence) continue
+      const keys = cited.get(edge.source) ?? new Set<string>()
+      keys.add(citationKey(evidence.evidence))
+      cited.set(edge.source, keys)
+    }
+  }
+  for (const [index, note] of (review_notes ?? []).entries()) {
+    const foreignOrigin = note.observation_ids.some(id => {
+      const node = graphNodes.get(id)
+      const invalid = reviewedOrigins.has(id) || node?.kind !== 'observation' || Boolean(node.finding_id)
+      reviewedOrigins.add(id)
+      return invalid
+    })
+    const foreignCitation = [...note.evidence, ...note.decision_evidence].some(e =>
+      !note.observation_ids.some(id => cited.get(id)?.has(citationKey(e))))
+    if (foreignOrigin || foreignCitation || note.requirement_ids.some(id => !requirementIds.has(id))
+      || (note.kind === 'question' && verdict.status === 'ready')) {
+      context.addIssue({ code: 'custom', path: ['review_notes', index], message: 'Review-note provenance or disposition conflicts with report.' })
+    }
+  }
   const expectedNodes = [[requirementIds, 'requirement'], [findingIds, 'finding'], [questionIds, 'question'], [referenceIds, 'reference']] as const
   if (expectedNodes.some(([ids, kind]) => [...ids].some(id => graphNodes.get(id)?.kind !== kind))) {
     context.addIssue({ code: 'custom', path: ['evidence_graph', 'nodes'], message: 'Graph must cover every requirement, finding, question and reference in the report.' })

@@ -6,6 +6,10 @@ The organizer supplies a source document and review rubric, not labeled ground t
 2. **Quality benchmark:** hand-annotated synthetic sources and a saved report. The offline `evaluate_quality_benchmark.py` measures annotation coverage, evidence validity and criterion coverage. It does not call a model.
 3. **Business value:** measured manual and assisted review effort for the same task, with a common quality acceptance rubric. Do not infer saved analyst time from model latency.
 
+For independent source-bound semantic assessment, see the [semantic holdout evaluation](examples/quality-benchmark/semantic-holdout/README.md). It separately counts unique supported defects, false positives, duplicates, uncertain findings, recall of frozen gold roots and severity agreement. Structural and anchor checks alone do not establish semantic precision.
+
+The local extension adds 30 synthetic specifications across 15 families. Six have completed end-to-end reports and all 30 have offline rule results. [Trial coverage and semantic scores](SEMANTIC_EVALUATION_30.ru.md)
+
 For a clearly labeled hackathon planning hypothesis based on public Kazakhstan wage statistics and comparable API tariffs, see [the provisional business-value scenario](BUSINESS_VALUE.ru.md). It is not an observed savings measurement.
 
 ## Final organizer run, 27 November 2026

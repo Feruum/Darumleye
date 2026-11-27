@@ -180,6 +180,17 @@ class ClarificationQuestion(StructuredReview):
     evidence: list[Evidence] = Field(default_factory=list)
 
 
+class ReviewNote(StructuredReview):
+    observation_ids: list[str] = Field(min_length=1)
+    kind: Literal["recommendation", "question"]
+    status: Literal["recommendation", "uncertain", "unreviewed"]
+    text: str
+    rationale: str
+    requirement_ids: list[str]
+    evidence: list[Evidence]
+    decision_evidence: list[Evidence]
+
+
 class ExtractedRequirement(StructuredReview):
     source_id: str | None = Field(max_length=100)
     text: str = Field(min_length=1, max_length=4000)
@@ -281,6 +292,7 @@ class ReviewReport(StructuredReview):
     report_markdown: str
     readiness_checklist: list[ReadinessCheck] = Field(default_factory=list)
     clarification_questions: list[ClarificationQuestion] = Field(default_factory=list)
+    review_notes: list[ReviewNote] = Field(default_factory=list)
     extraction_gaps: list[Evidence] = Field(default_factory=list)
     evidence_graph: EvidenceGraph | None = None
 
@@ -312,6 +324,12 @@ async def invoke_stage[T: BaseModel](
         if stage.startswith("multi_pair_") or stage in {"multi_finalizer", "multi_recheck", "multi_adjudicate"}:
             effort = "medium"
         elif stage.startswith("multi_") or stage in {"extraction", "individual", "set", "acceptance_alignment", "reference"}:
+            effort = "low"
+    if (stage == "multi_adjudicate" and adjudication_effort == "auto" and effort == "medium"
+            and data.get("source_complete") is True and "\nCORRECTION:" not in instructions):
+        rows = data.get("findings", [])
+        if rows and all(row.get("severity") == "low" and row.get("kind") == "other"
+                        and not row.get("check_conflict_resolution") for row in rows):
             effort = "low"
     reasoning_options = {}
     if effort:
@@ -438,6 +456,11 @@ _VALIDATION_REASONS = {
     "Invalid adjudication coverage",
     "Confirmed assessment requires severity and evidence",
     "Critical conflict requires both source rules",
+    "Withdrawing a conflict requires a source-backed same-case resolution",
+    "Both rules and the decisive clause must occur in verified decision evidence",
+    "Name the actual alternative, exception or precedence from the decisive clause",
+    "Resolve the stated acceptance boundary with the applicable source-backed basis",
+    "Use the governing rule independently identified for this acceptance case",
     "Rejected assessment requires source counterevidence and no severity",
 }
 
@@ -1011,30 +1034,67 @@ async def review_individually(
     return [finding for batch in results for finding in batch]
 
 
-def _declared_body(requirement: Requirement) -> tuple[str | None, str]:
-    """Strip a conventional leading ID declaration, not an in-text reference."""
-    quote = normalize_quote(requirement.evidence.quote)
-    if requirement.source_id is None:
-        return None, quote
-    identifier = normalize_quote(requirement.source_id)
-    if not identifier or not quote.startswith(identifier):
-        return None, quote
-    tail = quote[len(identifier) :]
-    if tail.strip() in {"", ".", ":", ")", "—", "–", "-"}:
-        return None, ""
+def _declared_body(source_id: str, text: str) -> str | None:
+    """A conventional leading ID must be followed by a separator and a body."""
+    if not text.startswith(source_id):
+        return None
+    tail = text[len(source_id):]
     for separator in (". ", ": ", ") ", " — ", " – ", " - "):
         if tail.startswith(separator):
-            body = tail[len(separator) :].strip()
-            if body:
-                return identifier, body
-    return None, quote
+            return tail[len(separator):].strip() or None
+    return None
 
 
-def _distinct_locations(left: Requirement, right: Requirement) -> bool:
-    return (
-        left.evidence.end < right.evidence.start
-        or right.evidence.end < left.evidence.start
-    )
+def _source_declaration(
+    specification: Specification, requirement: Requirement
+) -> tuple[str, Evidence] | None:
+    """Resolve one literal excerpt to a complete declaration in its cited unit."""
+    anchor = requirement.evidence
+    source_id = requirement.source_id
+    if (not source_id or anchor.start != anchor.end or anchor.start > len(specification.units)
+            or anchor.start in specification.unreadable_units):
+        return None
+    excerpt = normalize_quote(anchor.quote)
+    if not excerpt or excerpt in source_id:
+        return None
+    unit = specification.units[anchor.start - 1]
+    lines = [line.strip() for line in unit.splitlines() if line.strip()]
+    if len(lines) > 1 and specification.source != "pdf":
+        return None
+
+    matches = []
+    for index, line in enumerate(lines):
+        text = normalize_quote(line)
+        if excerpt not in text:
+            continue
+        if specification.source == "csv" and " | " in line:
+            cells = line.split(" | ")
+            if len(cells) != 2 or cells[0].strip() != source_id:
+                continue
+            body = normalize_quote(cells[1])
+            prefix = normalize_quote(cells[0] + " | ")
+        else:
+            declared = _DECLARATION.match(line)
+            start = declared.start("id") if declared else 0
+            body = _declared_body(source_id, normalize_quote(line[start:]))
+            if not body:
+                continue
+            prefix = text.removesuffix(body)
+        if not body or excerpt in prefix:
+            continue
+        matches.append((index, body))
+    if len(matches) != 1:
+        return None
+    index, body = matches[0]
+    if len(lines[index]) > 4000:
+        return None
+    if specification.source == "pdf":
+        # A following continuation or qualification has no reliable boundary.
+        if not body.endswith((".", "!", "?", "…")):
+            return None
+        if index + 1 < len(lines) and not _DECLARATION.match(lines[index + 1]):
+            return None
+    return body, Evidence(start=anchor.start, end=anchor.end, quote=lines[index])
 
 
 def review_code_checks(
@@ -1043,12 +1103,27 @@ def review_code_checks(
     """Check repeat/ID integrity and explicit source-local specification facts."""
     bodies: dict[str, list[Requirement]] = {}
     identifiers: dict[str, list[tuple[Requirement, str]]] = {}
+    declaration_evidence: dict[str, Evidence] = {}
     for requirement in requirements:
-        identifier, body = _declared_body(requirement)
+        if requirement.source_id:
+            declaration = _source_declaration(specification, requirement)
+            if declaration is None:
+                # A shared extractor fragment may belong to differently scoped rules.
+                continue
+            body, declaration_evidence[requirement.id] = declaration
+            identifiers.setdefault(requirement.source_id, []).append((requirement, body))
+        else:
+            body = normalize_quote(requirement.evidence.quote)
         if body:
             bodies.setdefault(body, []).append(requirement)
-        if identifier:
-            identifiers.setdefault(identifier, []).append((requirement, body))
+
+    def distinct_locations(left: Requirement, right: Requirement) -> bool:
+        if left.evidence.end < right.evidence.start or right.evidence.end < left.evidence.start:
+            return True
+        left_line = declaration_evidence.get(left.id)
+        right_line = declaration_evidence.get(right.id)
+        # Different unique declarations can occupy the same PDF page.
+        return left_line is not None and right_line is not None and left_line.quote != right_line.quote
 
     findings: list[Finding] = []
 
@@ -1061,10 +1136,8 @@ def review_code_checks(
         recommendation: str,
         criterion: str,
     ) -> None:
-        evidence = {
-            (item.evidence.start, item.evidence.end, item.evidence.quote): item.evidence
-            for item in members
-        }
+        anchors = [declaration_evidence.get(item.id, item.evidence) for item in members]
+        evidence = {(e.start, e.end, e.quote): e for e in anchors}
         findings.append(
             Finding(
                 kind=kind,
@@ -1081,14 +1154,17 @@ def review_code_checks(
         members = [
             item
             for item in group
-            if any(_distinct_locations(item, other) for other in group)
+            if any(distinct_locations(item, other) for other in group)
         ]
         if members:
+            source_ids = list(dict.fromkeys(item.source_id for item in members))
+            full_pair = (len(source_ids) >= 2 and all(item.id in declaration_evidence for item in members))
             add_finding(
                 members,
                 kind="other",
                 severity="low",
-                issue=f"Одинаковая дословная формулировка {members[0].id} повторяется в разных местах ТЗ.",
+                issue=(f"Под разными идентификаторами {source_ids[0]} и {source_ids[1]} записан дословно одинаковый текст требования."
+                       if full_pair else f"Одинаковая дословная формулировка {members[0].id} повторяется в разных местах ТЗ."),
                 recommendation="Проверить, не дублируют ли друг друга эти обязательства. Объединить дубликаты или явно обозначить различия областей действия.",
                 criterion="Отсутствие дублирования",
             )
@@ -1098,7 +1174,7 @@ def review_code_checks(
             item
             for item, body in group
             if any(
-                body != other_body and _distinct_locations(item, other)
+                body != other_body and distinct_locations(item, other)
                 for other, other_body in group
             )
         ]
@@ -1222,6 +1298,7 @@ def summarize(
     unreadable_units: list[int] | None = None,
     extraction_gaps: list[Evidence] | None = None,
     readiness_checklist: list[ReadinessCheck] | None = None,
+    *, pending_observations: bool = False,
 ) -> tuple[Statistics, Verdict]:
     linked = {
         identifier for finding in findings for identifier in finding.requirement_ids
@@ -1252,6 +1329,8 @@ def summarize(
         priorities.append("Устранить нарушения чек-листа готовности ТЗ.")
     elif readiness_checklist and any(row.status == "uncertain" for row in readiness_checklist):
         priorities.append("Уточнить неподтверждённые пункты чек-листа готовности ТЗ.")
+    if pending_observations:
+        priorities.append("Проверить неподтверждённые наблюдения и их исходные доказательства.")
     if not requirements:
         priorities.insert(0, "Сформулировать и зафиксировать проверяемые требования.")
     if (
@@ -1268,6 +1347,7 @@ def summarize(
         )
     elif (
         findings
+        or pending_observations
         or passed < len(requirements)
         or any(check.status in {"fail", "uncertain"} for check in set_checks)
         or (readiness_checklist and any(row.status in {"fail", "uncertain"} for row in readiness_checklist))

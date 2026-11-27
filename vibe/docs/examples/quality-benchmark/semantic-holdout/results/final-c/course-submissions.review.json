@@ -1,0 +1,47 @@
+{
+  "source_sha256": "3c18901e984a49f9fb624b9c1e0230f4e5cd2b35ac7a7ef86d263c994d89576d",
+  "gold_sha256": "e3dc16b5a31641c55ede04d0aaa8985f4cc1abd06ebf9da88cd38fb22a919270",
+  "report_sha256": "69ed2d60c4bb27c0bc4476c6a6204b210f9b935811ee65f9f85994627104322d",
+  "findings": {
+    "D-001": {
+      "status": "duplicate",
+      "root_id": "D01",
+      "rationale": "The narrower replacement-file scenario is fully contained in D-002. Both need the same decision about when R05 blocks acceptance in relation to the 48-hour extension in R04."
+    },
+    "D-002": {
+      "status": "gold",
+      "root_id": "D01",
+      "rationale": "R04 permits submission and replacement in the 48-hour period that R05 forbids all acceptance channels from using. Resolving the cutoff once covers both initial submission and replacement."
+    },
+    "D-003": {
+      "status": "gold",
+      "root_id": "D02",
+      "rationale": "R07 permits simultaneous maxima of 60+25+20=105, but R08 requires the unmodified sum to be at most 100. The maxima or calculation rule must change."
+    },
+    "D-004": {
+      "status": "gold",
+      "root_id": "D04",
+      "rationale": "R11 forbids disclosure of author surname and group in peer review, yet R12 provides those same fields during peer review. Resolving disclosure and the table contents addresses this conflict."
+    },
+    "D-005": {
+      "status": "gold",
+      "root_id": "D03",
+      "rationale": "R09 requires a third reviewer in the >15-point difference branch but defines the final score only in the <=15 branch. Choosing the combination rule for all three determines the mandatory final score."
+    },
+    "D-006": {
+      "status": "gold",
+      "root_id": "D05",
+      "rationale": "R14 requires a university personal number, not the email used by R13, and no data source or mapping is provided. Defining that source is necessary for the export."
+    },
+    "D-007": {
+      "status": "gold",
+      "root_id": "D06",
+      "rationale": "R15 specifies the workload but not a measurable response-time bound or measurement conditions. The proposed acceptance threshold addresses the gap."
+    },
+    "D-008": {
+      "status": "valid_extra",
+      "root_id": "EXTRA-PEER-REVIEW-PERIOD",
+      "rationale": "R11 and R12 condition access and author disclosure on a peer-review period, but no date configuration or lifecycle event determines its beginning/end. Even after removing the prohibited table fields, the period still controls table availability and the R11 identity restriction, so defining these events is an independently actionable product decision."
+    }
+  }
+}

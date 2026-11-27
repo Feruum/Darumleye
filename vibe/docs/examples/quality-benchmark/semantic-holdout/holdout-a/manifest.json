@@ -1,0 +1,33 @@
+{
+  "name": "blind-synthetic-holdout-a",
+  "language": "ru",
+  "documents": [
+    {
+      "source": "sources/studio-booking.md",
+      "source_sha256": "86353426db7ca22eb986aa77501ae9e436d96d62bc0d9b86be4c5611c39b1d8c",
+      "gold": "private/studio-booking.gold.json",
+      "gold_sha256": "713adb476d38f50fd3d058b7c65a60eb76bb08c1a297330596b5e061b3e6919c",
+      "requirements": 16,
+      "defects": 5,
+      "negative_controls": 5
+    },
+    {
+      "source": "sources/library-reservations.md",
+      "source_sha256": "578def477e2c8ab79a4d28c71e333b7ce5affc2a0c5f1739d143922111cbe126",
+      "gold": "private/library-reservations.gold.json",
+      "gold_sha256": "767fda75476a2d3bf30a70185003fb8ed4100df26b01b493e35080a7b962f5a0",
+      "requirements": 16,
+      "defects": 5,
+      "negative_controls": 5
+    },
+    {
+      "source": "sources/parcel-dispatch.md",
+      "source_sha256": "74f2ad1bc44ca7f8cb1e835e7a6ffd0f1aaa06abc9c4cb95e36671ad1fd99127",
+      "gold": "private/parcel-dispatch.gold.json",
+      "gold_sha256": "e31a41b2795b498c481ff9f31f1c390dcd31af6c5658038bd9fb90c75ab1b356",
+      "requirements": 17,
+      "defects": 5,
+      "negative_controls": 5
+    }
+  ]
+}

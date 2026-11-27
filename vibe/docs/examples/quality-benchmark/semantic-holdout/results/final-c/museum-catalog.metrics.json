@@ -1,0 +1,287 @@
+{
+  "model_calls": 45,
+  "cache_hits": 0,
+  "input_tokens": 218636,
+  "output_tokens": 64379,
+  "reported_input_tokens": 218636,
+  "reported_output_tokens": 64379,
+  "usage_complete": true,
+  "cost_usd": 0.056298845,
+  "reported_cost_usd": 0.056298845,
+  "by_stage": [
+    {
+      "stage": "extraction",
+      "model": "openai/gpt-6-luna",
+      "reasoning_effort": "low",
+      "model_calls": 1,
+      "cache_hits": 0,
+      "input_tokens": 1756,
+      "output_tokens": 3353,
+      "reported_input_tokens": 1756,
+      "reported_output_tokens": 3353,
+      "usage_complete": true,
+      "cost_usd": 0.001895925,
+      "reported_cost_usd": 0.001895925,
+      "response_models": {
+        "openai/gpt-6-luna": 1
+      }
+    },
+    {
+      "stage": "multi_logic_inspector_individual",
+      "model": "openai/gpt-6-luna",
+      "reasoning_effort": "low",
+      "model_calls": 4,
+      "cache_hits": 0,
+      "input_tokens": 15904,
+      "output_tokens": 10351,
+      "reported_input_tokens": 15904,
+      "reported_output_tokens": 10351,
+      "usage_complete": true,
+      "cost_usd": 0.00683476,
+      "reported_cost_usd": 0.00683476,
+      "response_models": {
+        "openai/gpt-6-luna": 4
+      }
+    },
+    {
+      "stage": "multi_logic_inspector_set",
+      "model": "openai/gpt-6-luna",
+      "reasoning_effort": "low",
+      "model_calls": 1,
+      "cache_hits": 0,
+      "input_tokens": 7694,
+      "output_tokens": 3100,
+      "reported_input_tokens": 7694,
+      "reported_output_tokens": 3100,
+      "usage_complete": true,
+      "cost_usd": 0.00228731,
+      "reported_cost_usd": 0.00228731,
+      "response_models": {
+        "openai/gpt-6-luna": 1
+      }
+    },
+    {
+      "stage": "multi_scenario_builder_individual",
+      "model": "openai/gpt-6-luna",
+      "reasoning_effort": "low",
+      "model_calls": 4,
+      "cache_hits": 0,
+      "input_tokens": 16420,
+      "output_tokens": 6402,
+      "reported_input_tokens": 16420,
+      "reported_output_tokens": 6402,
+      "usage_complete": true,
+      "cost_usd": 0.00451812,
+      "reported_cost_usd": 0.00451812,
+      "response_models": {
+        "openai/gpt-6-luna": 4
+      }
+    },
+    {
+      "stage": "multi_scenario_builder_set",
+      "model": "openai/gpt-6-luna",
+      "reasoning_effort": "low",
+      "model_calls": 2,
+      "cache_hits": 0,
+      "input_tokens": 16519,
+      "output_tokens": 5614,
+      "reported_input_tokens": 16519,
+      "reported_output_tokens": 5614,
+      "usage_complete": true,
+      "cost_usd": 0.004632295,
+      "reported_cost_usd": 0.004632295,
+      "response_models": {
+        "openai/gpt-6-luna": 2
+      }
+    },
+    {
+      "stage": "multi_gap_hunter_individual",
+      "model": "openai/gpt-6-luna",
+      "reasoning_effort": "low",
+      "model_calls": 4,
+      "cache_hits": 0,
+      "input_tokens": 15952,
+      "output_tokens": 7853,
+      "reported_input_tokens": 15952,
+      "reported_output_tokens": 7853,
+      "usage_complete": true,
+      "cost_usd": 0.005417535,
+      "reported_cost_usd": 0.005417535,
+      "response_models": {
+        "openai/gpt-6-luna": 4
+      }
+    },
+    {
+      "stage": "multi_gap_hunter_set",
+      "model": "openai/gpt-6-luna",
+      "reasoning_effort": "low",
+      "model_calls": 2,
+      "cache_hits": 0,
+      "input_tokens": 16652,
+      "output_tokens": 4476,
+      "reported_input_tokens": 16652,
+      "reported_output_tokens": 4476,
+      "usage_complete": true,
+      "cost_usd": 0.00407808,
+      "reported_cost_usd": 0.00407808,
+      "response_models": {
+        "openai/gpt-6-luna": 2
+      }
+    },
+    {
+      "stage": "multi_contract_inspector_individual",
+      "model": "openai/gpt-6-luna",
+      "reasoning_effort": "low",
+      "model_calls": 4,
+      "cache_hits": 0,
+      "input_tokens": 15876,
+      "output_tokens": 8329,
+      "reported_input_tokens": 15876,
+      "reported_output_tokens": 8329,
+      "usage_complete": true,
+      "cost_usd": 0.0056519,
+      "reported_cost_usd": 0.0056519,
+      "response_models": {
+        "openai/gpt-6-luna": 4
+      }
+    },
+    {
+      "stage": "multi_contract_inspector_set",
+      "model": "openai/gpt-6-luna",
+      "reasoning_effort": "low",
+      "model_calls": 1,
+      "cache_hits": 0,
+      "input_tokens": 7709,
+      "output_tokens": 2560,
+      "reported_input_tokens": 7709,
+      "reported_output_tokens": 2560,
+      "usage_complete": true,
+      "cost_usd": 0.002019185,
+      "reported_cost_usd": 0.002019185,
+      "response_models": {
+        "openai/gpt-6-luna": 1
+      }
+    },
+    {
+      "stage": "multi_risk_inspector_set",
+      "model": "openai/gpt-6-luna",
+      "reasoning_effort": "low",
+      "model_calls": 1,
+      "cache_hits": 0,
+      "input_tokens": 7680,
+      "output_tokens": 1996,
+      "reported_input_tokens": 7680,
+      "reported_output_tokens": 1996,
+      "usage_complete": true,
+      "cost_usd": 0.00173356,
+      "reported_cost_usd": 0.00173356,
+      "response_models": {
+        "openai/gpt-6-luna": 1
+      }
+    },
+    {
+      "stage": "multi_pair_1",
+      "model": "openai/gpt-6-luna",
+      "reasoning_effort": "low",
+      "model_calls": 1,
+      "cache_hits": 0,
+      "input_tokens": 9041,
+      "output_tokens": 763,
+      "reported_input_tokens": 9041,
+      "reported_output_tokens": 763,
+      "usage_complete": true,
+      "cost_usd": 0.00151155,
+      "reported_cost_usd": 0.00151155,
+      "response_models": {
+        "openai/gpt-6-luna": 1
+      }
+    },
+    {
+      "stage": "multi_pair_2",
+      "model": "openai/gpt-6-luna",
+      "reasoning_effort": "low",
+      "model_calls": 1,
+      "cache_hits": 0,
+      "input_tokens": 8881,
+      "output_tokens": 615,
+      "reported_input_tokens": 8881,
+      "reported_output_tokens": 615,
+      "usage_complete": true,
+      "cost_usd": 0.00141755,
+      "reported_cost_usd": 0.00141755,
+      "response_models": {
+        "openai/gpt-6-luna": 1
+      }
+    },
+    {
+      "stage": "multi_pair_3",
+      "model": "openai/gpt-6-luna",
+      "reasoning_effort": "low",
+      "model_calls": 1,
+      "cache_hits": 0,
+      "input_tokens": 3220,
+      "output_tokens": 101,
+      "reported_input_tokens": 3220,
+      "reported_output_tokens": 101,
+      "usage_complete": true,
+      "cost_usd": 0.000452925,
+      "reported_cost_usd": 0.000452925,
+      "response_models": {
+        "openai/gpt-6-luna": 1
+      }
+    },
+    {
+      "stage": "multi_finalizer",
+      "model": "openai/gpt-6-luna",
+      "reasoning_effort": "low",
+      "model_calls": 11,
+      "cache_hits": 0,
+      "input_tokens": 46135,
+      "output_tokens": 2977,
+      "reported_input_tokens": 46135,
+      "reported_output_tokens": 2977,
+      "usage_complete": true,
+      "cost_usd": 0.00725455,
+      "reported_cost_usd": 0.00725455,
+      "response_models": {
+        "openai/gpt-6-luna": 11
+      }
+    },
+    {
+      "stage": "multi_adjudicate",
+      "model": "openai/gpt-6-luna",
+      "reasoning_effort": "medium",
+      "model_calls": 2,
+      "cache_hits": 0,
+      "input_tokens": 7236,
+      "output_tokens": 3582,
+      "reported_input_tokens": 7236,
+      "reported_output_tokens": 3582,
+      "usage_complete": true,
+      "cost_usd": 0.00269535,
+      "reported_cost_usd": 0.00269535,
+      "response_models": {
+        "openai/gpt-6-luna": 2
+      }
+    },
+    {
+      "stage": "multi_recheck",
+      "model": "openai/gpt-6-luna",
+      "reasoning_effort": "low",
+      "model_calls": 5,
+      "cache_hits": 0,
+      "input_tokens": 21961,
+      "output_tokens": 2307,
+      "reported_input_tokens": 21961,
+      "reported_output_tokens": 2307,
+      "usage_complete": true,
+      "cost_usd": 0.00389825,
+      "reported_cost_usd": 0.00389825,
+      "response_models": {
+        "openai/gpt-6-luna": 5
+      }
+    }
+  ],
+  "run_id": "6cde41d3-b137-4231-9b17-b9173e911040",
+  "status": "completed"
+}

@@ -53,6 +53,10 @@ class ExpertChat:
             result = {"summary":"Обнаружено замечание.", "merges":[]}
         elif stage == "multi_recheck":
             result = {"status":"disagrees", "comment":"Требуется уточнение."}
+        elif stage == "multi_root_review":
+            result = {"pairs": []}
+        elif stage == "multi_counterevidence":
+            result = {"rows": [{"id": row["id"], "evidence": []} for row in data["findings"]]}
         elif stage == "multi_adjudicate":
             result = {"decisions": [{"id": row["id"], "status": "confirmed", "severity": row["severity"],
                                       "rationale": "Подтверждено исходным текстом.", "evidence": row["evidence"][:1]}
@@ -193,6 +197,34 @@ async def test_final_adjudication_quarantines_only_source_backed_rejections():
 
 
 @pytest.mark.asyncio
+async def test_final_adjudication_also_reviews_medium_ambiguities_and_low_quality_claims():
+    def variant(data, result):
+        if data["stage"] == "multi_logic_inspector_set":
+            result["findings"] = [
+                {"kind": "ambiguous", "severity": "medium", "issue": "Неясен формат выписки.",
+                 "recommendation": "Уточнить формат.", "evidence": [ANCHOR],
+                 "requirement_ids": ["R-001"], "criteria": ["Однозначность"]},
+                {"kind": "other", "severity": "low", "issue": "Неясен стиль даты.",
+                 "recommendation": "Уточнить стиль.",
+                 "evidence": [{"start": 2, "end": 2, "quote": "R-2. Отобразить дату."}],
+                 "requirement_ids": ["R-002"], "criteria": ["Полнота"]},
+            ]
+        elif data["stage"] == "multi_gap_hunter_set":
+            result["findings"] = []
+        elif data["stage"] == "multi_adjudicate":
+            result["decisions"] = [{"id": row["id"], "status": "unsupported", "severity": None,
+                "rationale": "Исходное обязательство не требует указанного оформления.",
+                "evidence": row["evidence"][:1]} for row in data["findings"]]
+
+    chat = VariantChat(variant)
+    report = await review_specification(source(), chat, review_mode="multi_agent_direct")
+    assert report.evidence_graph.adjudication.candidates == 2
+    assert report.evidence_graph.adjudication.unsupported == 2
+    assert not report.findings
+    assert len([row for stage in chat.stages if stage["stage"] == "multi_adjudicate" for row in stage["findings"]]) == 2
+
+
+@pytest.mark.asyncio
 async def test_uncertain_adjudication_context_is_not_a_primary_finding_citation():
     extra = {"start": 2, "end": 2, "quote": "R-2. Отобразить дату."}
 
@@ -203,11 +235,36 @@ async def test_uncertain_adjudication_context_is_not_a_primary_finding_citation(
 
     report = await review_specification(source(), VariantChat(variant), review_mode="multi_agent_direct")
     graph = report.evidence_graph
-    by_id = {node.id: node for node in graph.nodes}
-    citations = [by_id[e.target].evidence.model_dump() for e in graph.edges if e.source == "D-001" and e.kind == "cites"]
-    context = [by_id[e.target].evidence.model_dump() for e in graph.edges if e.source == "D-001" and e.kind == "adjudication_context"]
-    assert citations == [ANCHOR] == [e.model_dump() for e in report.findings[0].evidence]
-    assert context == [extra]
+    assert not report.findings
+    note, = report.review_notes
+    assert note.kind == "question" and note.status == "uncertain"
+    assert [e.model_dump() for e in note.evidence] == [ANCHOR]
+    assert [e.model_dump() for e in note.decision_evidence] == [extra]
+    assert set(note.observation_ids) <= {node.id for node in graph.nodes if node.kind == "observation"}
+    assert report.verdict.status != "ready"
+    assert "Вопросы на проверку" in report.report_markdown
+
+
+@pytest.mark.asyncio
+async def test_independent_counterevidence_precedes_source_bound_recommendation():
+    def variant(data, result):
+        if data["stage"] == "multi_counterevidence":
+            for row in result["rows"]:
+                row["evidence"] = [ANCHOR]
+        elif data["stage"] == "multi_adjudicate":
+            assert data["counterevidence_search"]["rows"][0]["evidence"] == [ANCHOR]
+            result["decisions"] = [{"id": row["id"], "status": "recommendation", "severity": None,
+                "rationale": "Обязательный результат задан. Формат можно предложить как улучшение.",
+                "evidence": [ANCHOR]} for row in data["findings"]]
+
+    report = await review_specification(source(), VariantChat(variant), review_mode="multi_agent_direct")
+    assert not report.findings
+    note, = report.review_notes
+    assert note.kind == note.status == "recommendation"
+    assert [e.model_dump() for e in note.decision_evidence] == [ANCHOR]
+    assert report.statistics.violations == 0
+    assert report.evidence_graph.adjudication.recommendations == 1
+    assert "Рекомендации по документу" in report.report_markdown
 
 
 @pytest.mark.asyncio
@@ -223,8 +280,9 @@ async def test_invalid_adjudication_evidence_preserves_original_finding_and_does
     checkpoint = StageCheckpoint(tmp_path, provider_identity="fixture")
     with checkpoint_scope(checkpoint):
         report = await review_specification(source(), VariantChat(variant), review_mode="multi_agent_direct")
-    assert len(report.findings) == 1
-    assert report.findings[0].severity == "high"
+    assert not report.findings
+    assert [note.status for note in report.review_notes] == ["unreviewed"]
+    assert report.verdict.status != "ready"
     assert report.evidence_graph.adjudication.unreviewed == 1
     resumed = ExpertChat()
     with checkpoint_scope(checkpoint):
@@ -406,6 +464,36 @@ async def test_reducer_preserves_differing_numbers_and_negations_on_shared_quote
     assert "3 замечаний" in report.summary
     assert "ТЗ готово" not in report.summary
     assert report.verdict.status == "not_ready"
+
+
+def test_retrieves_missing_boundary_paraphrases_without_merging_opposite_claims():
+    from agent.services.spec_multi_agent import Group, Observation, _merge_candidates
+    from agent.services.spec_review import Evidence, Finding
+
+    evidence = Evidence(start=1, end=1, quote="До 10 минут допускается запись, после 10 минут — отказ.")
+    a = Finding(kind="missing", severity="medium", issue="Не указан результат записи ровно в 10 минут.",
+                recommendation="Уточнить исход на границе 10 минут.", evidence=[evidence], requirement_ids=["R-001"])
+    b = a.model_copy(update={"kind": "ambiguous", "issue": "Правила до и после 10 минут не задают результат записи ровно в 10 минут.",
+                             "recommendation": "Уточнить доступность записи в граничный момент."})
+    c = a.model_copy(update={"issue": "Указан результат записи ровно в 10 минут."})
+    d = a.model_copy(update={"issue": "Не указан результат записи ровно в 20 минут."})
+    groups = [Group([Observation(f"O-{i:04d}", "logic_inspector", f)]) for i, f in enumerate((a, b, c, d), 1)]
+    assert _merge_candidates(groups) == [("O-0001", "O-0002")]
+
+
+def test_retrieves_same_cross_rule_conflict_despite_different_numeric_projections():
+    from agent.services.spec_multi_agent import Group, Observation, _merge_candidates, _numeric_negation
+    from agent.services.spec_review import Evidence, Finding
+
+    evidence = [Evidence(start=1, end=1, quote="R08. Оплата до 10 мая — 30%, после — 80%."),
+                Evidence(start=2, end=2, quote="R09. Для всех оплат применяется единый тариф 100%.")]
+    a = Finding(kind="conflict", severity="high", issue="Тариф 30% до 10 мая несовместим с единым тарифом R09.",
+                recommendation="Согласовать тарифы и приоритет правил.", evidence=evidence,
+                requirement_ids=["R-008", "R-009"])
+    b = a.model_copy(update={"issue": "По R08 ставка 80%, а по R09 ставка 100%; правила оплаты противоречат друг другу."})
+    groups = [Group([Observation(f"O-{i:04d}", "logic_inspector", f)]) for i, f in enumerate((a, b), 1)]
+    assert _numeric_negation("По R08 действует 80%")[0] == ["80"]
+    assert _merge_candidates(groups) == [("O-0001", "O-0002")]
 
 
 def test_graph_enforces_evidence_and_foreign_node_integrity():
@@ -647,6 +735,8 @@ async def test_empty_registry_blocking_finding_cites_readable_document(mode):
         async def ainvoke(self,messages,**kwargs):
             data=json.loads(messages[1].content)
             stage=data["stage"]
+            if stage in {"multi_counterevidence", "multi_adjudicate"}:
+                return await super().ainvoke(messages, **kwargs)
             if stage=="extraction":
                 result={"requirements":[]}
             elif stage.endswith("_set") or stage=="set":
@@ -1161,7 +1251,8 @@ def test_candidate_retrieval_counts_distinct_shared_units_not_excerpt_objects():
 
 
 @pytest.mark.asyncio
-async def test_failed_adjudication_batch_retries_individual_groups_without_losing_valid_decisions():
+@pytest.mark.parametrize("search_available", [True, False])
+async def test_failed_adjudication_batch_retries_individual_groups_without_losing_valid_decisions(search_available):
     def variant(data, result):
         if data["stage"] == "multi_logic_inspector_set":
             template = result["findings"][0]
@@ -1169,16 +1260,27 @@ async def test_failed_adjudication_batch_retries_individual_groups_without_losin
                                   {**template, "issue": "Не определён предел 20."}]
         elif data["stage"] == "multi_gap_hunter_set":
             result["findings"] = []
+        elif data["stage"] == "multi_counterevidence" and not search_available:
+            raise RuntimeError("Independent search unavailable")
         elif data["stage"] == "multi_adjudicate":
             for finding, decision in zip(data["findings"], result["decisions"], strict=True):
                 if "20" in finding["issue"]:
                     decision["evidence"] = [{"start":1,"end":1,"quote":"Несуществующая цитата."}]
     chat = VariantChat(variant)
     report = await review_specification(source(), chat, review_mode="multi_agent_direct")
-    assert len(report.findings) == 2
+    assert len(report.findings) == 1
+    assert [note.status for note in report.review_notes] == ["unreviewed"]
     assert report.evidence_graph.adjudication.confirmed == 1
     assert report.evidence_graph.adjudication.unreviewed == 1
     assert any(len(stage["findings"]) == 1 for stage in chat.stages if stage["stage"] == "multi_adjudicate")
+    assert sum(stage["stage"] == "multi_counterevidence" for stage in chat.stages) == 1
+    for stage in chat.stages:
+        if stage["stage"] == "multi_adjudicate":
+            search = stage["counterevidence_search"]
+            if search_available:
+                assert {row["id"] for row in search["rows"]} == {row["id"] for row in stage["findings"]}
+            else:
+                assert search == {"status": "unavailable"}
 
 
 def test_merged_observations_do_not_create_cartesian_disputes_or_attach_context_only_requirements():
@@ -1234,3 +1336,182 @@ async def test_residual_pair_review_recovers_duplicate_missed_by_broad_finalizer
     assert {node.role for node in report.evidence_graph.nodes if node.kind=="observation" and node.severity} == {
         "logic_inspector", "gap_hunter"
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("documented_alternative", [False, True])
+async def test_withdrawing_conflict_requires_documented_means_for_same_case(documented_alternative):
+    first = {"start": 1, "end": 1, "quote": "R-1. Во время калибровки оператор обязан зарегистрировать замер."}
+    second = {"start": 2, "end": 2, "quote": "R-2. Во время калибровки терминал блокирует регистрацию замеров."}
+    third = {"start": 3, "end": 3, "quote": "Во время калибровки оператор регистрирует замеры через резервный пульт."}
+    anchors = [first, second, third] if documented_alternative else [first, second]
+    source = extract_specification("calibration.txt", "text/plain",
+                                   "\n".join(e["quote"] for e in anchors).encode())
+    adjudications = 0
+
+    def variant(data, result):
+        nonlocal adjudications
+        stage = data["stage"]
+        if stage == "extraction":
+            result["requirements"] = [
+                {"source_id": f"R-{i}", "text": evidence["quote"], "evidence": evidence}
+                for i, evidence in enumerate([first, second], 1)
+            ]
+        elif stage.endswith("_set"):
+            for check in [*result["set_checks"], *result["readiness_checklist"]]:
+                check["evidence"] = [first]
+            result["findings"] = [{
+                "kind": "conflict", "severity": "high", "issue": "Обязательный замер нельзя зарегистрировать.",
+                "recommendation": "Согласовать регистрацию замера при калибровке.", "evidence": [first, second],
+                "requirement_ids": ["R-001", "R-002"], "criteria": ["Согласованность"],
+            }] if data["role"] == "logic_inspector" else []
+        elif stage == "multi_adjudicate":
+            row, = data["findings"]
+            assert row["check_conflict_resolution"]
+            adjudications += 1
+            # The first assessment cites genuine text but proposes the same
+            # invented alternative when that alternative is absent from the source.
+            if adjudications == 1:
+                result["decisions"] = [{
+                    "id": row["id"], "status": "unsupported", "severity": None,
+                    "rationale": "Резервный пульт доступен оператору во время калибровки.",
+                    "evidence": anchors, "conflict_resolution": {
+                        "case": "Оператор регистрирует замер во время калибровки.",
+                        "first_rule": first["quote"], "second_rule": second["quote"],
+                        "basis": "explicit_alternative",
+                        "decisive_clause": third["quote"] if documented_alternative else first["quote"],
+                        "operative_term": "резервный пульт",
+                    },
+                }]
+            else:
+                result["decisions"] = [{
+                    "id": row["id"], "status": "confirmed", "severity": "high",
+                    "rationale": "Во время калибровки замер обязателен, а его регистрация блокируется.",
+                    "evidence": [first, second],
+                }]
+
+    report = await review_specification(source, VariantChat(variant), review_mode="multi_agent_direct")
+    assert adjudications == (1 if documented_alternative else 2)
+    assert len(report.findings) == (0 if documented_alternative else 1)
+    assert report.evidence_graph.adjudication.unsupported == int(documented_alternative)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("boundary", "premise", "additional_rule", "applies", "claim", "basis_kind",
+                          "initial_status", "final_status"), [
+    pytest.param(
+        "unresolved_choice", "При равных баллах система обязана однозначно определить единственного получателя.",
+        "", False, "Опубликованные баллы не позволяют однозначно определить получателя при равенстве.",
+        "selection_rule", "recommendation", "confirmed", id="tied-score-needs-selection-rule",
+    ),
+    pytest.param(
+        "unresolved_choice", "Планировщик назначает задачу ровно одному узлу с минимальной загрузкой.",
+        "При равной загрузке разрешено выбрать любой из таких узлов.", True,
+        "Не установлено, какой узел получает задачу при равной минимальной загрузке.",
+        "explicit_discretion", "unsupported", "unsupported", id="any-tied-worker-permitted",
+    ),
+    pytest.param(
+        "given_precondition", "При получении подтвержденного заказа сервис резервирует места.",
+        "", False, "Не определен критерий, по которому сервис обязан сам проверять действительность заказа.",
+        "validation_obligation", "confirmed", "uncertain", id="confirmed-order-is-an-input",
+    ),
+    pytest.param(
+        "given_precondition", "По действительному пропуску система открывает турникет.",
+        "Система должна самостоятельно установить действительность пропуска перед открытием.", True,
+        "Проверка действительности возложена на систему, но критерий для нее не задан.",
+        "validation_obligation", "confirmed", "confirmed", id="turnstile-must-validate-pass",
+    ),
+    pytest.param(
+        "given_precondition", "После получения подтвержденной заявки система выдает пропуск посетителю.",
+        "Перед подписанием накладной бухгалтер проверяет действительность сертификата подписи.", False,
+        "Не указан критерий обязательной проверки действительности самой заявки при выдаче пропуска.",
+        "validation_obligation", "confirmed", "uncertain", id="signature-check-does-not-govern-visitor-request",
+    ),
+])
+async def test_acceptance_boundary_requires_distinct_source_basis(
+    boundary, premise, additional_rule, applies, claim, basis_kind, initial_status, final_status,
+):
+    source_lines = [f"R-1. {premise}"]
+    if applies:
+        # The reader may retrieve a single broad paragraph covering both
+        # the premise and the separate, applicable operative clause.
+        source_lines[0] += f" {additional_rule}"
+    elif additional_rule:
+        source_lines.append(f"R-2. Бухгалтерия. {additional_rule}")
+    evidence = [{"start": i, "end": i, "quote": line} for i, line in enumerate(source_lines, 1)]
+    source = extract_specification("scenario.txt", "text/plain", "\n".join(source_lines).encode())
+    cases = {
+        "selection_rule": "Два разных претендента имеют одинаковые опубликованные баллы.",
+        "explicit_discretion": "Два доступных узла имеют одинаковую минимальную загрузку.",
+        "validation_obligation": "Получен входной объект без сведений, как получатель устанавливает его действительность.",
+    }
+    attempts = 0
+
+    def variant(data, result):
+        nonlocal attempts
+        stage = data["stage"]
+        if stage == "extraction":
+            result["requirements"] = [
+                {"source_id": f"R-{i}", "text": e["quote"], "evidence": e}
+                for i, e in enumerate(evidence, 1)
+            ]
+        elif stage.endswith("_set"):
+            for check in [*result["set_checks"], *result["readiness_checklist"]]:
+                check["evidence"] = evidence[:1]
+            result["findings"] = [{
+                "kind": "missing", "severity": "medium", "issue": claim,
+                "recommendation": "Уточнить критерий в исходном правиле.", "evidence": evidence,
+                "requirement_ids": ["R-001"], "criteria": ["Полнота"],
+            }] if data["role"] == "gap_hunter" else []
+        elif stage == "multi_counterevidence":
+            row, = result["rows"]
+            row.update(acceptance_boundary=boundary, boundary_premise=premise, evidence=evidence)
+            if applies:
+                row["governing_rule"] = {"kind": basis_kind, "operative_phrase": additional_rule}
+        elif stage == "multi_adjudicate":
+            row, = result["decisions"]
+            attempts += 1
+            status = initial_status if attempts == 1 else final_status
+            row.update(status=status, severity="medium" if status == "confirmed" else None,
+                       rationale=claim, evidence=evidence)
+            if attempts == 1:
+                # Every phrase is literal. Only the independent reader can
+                # attest that a distinct operative clause governs this case.
+                row["acceptance_basis"] = {
+                    "kind": basis_kind, "operative_phrase": additional_rule or premise,
+                    "case": cases[basis_kind],
+                }
+
+    chat = VariantChat(variant)
+    report = await review_specification(source, chat, review_mode="multi_agent_direct")
+    searches = [s for s in chat.stages if s["stage"] == "multi_counterevidence"]
+    first = next(s for s in chat.stages if s["stage"] == "multi_adjudicate")
+    assert len(searches) == 1
+    marker, = first["counterevidence_search"]["rows"]
+    assert marker["acceptance_boundary"] == boundary
+    assert marker["boundary_premise"] == premise
+    assert marker["evidence"] == evidence
+    expected_rule = {"kind": basis_kind, "operative_phrase": additional_rule} if applies else None
+    assert marker.get("governing_rule") == expected_rule
+    assert attempts == (1 if applies else 2)
+    assert len(report.findings) == int(final_status == "confirmed")
+    assert getattr(report.evidence_graph.adjudication, final_status) == 1
+    if final_status == "uncertain":
+        note, = report.review_notes
+        assert (note.kind, note.status) == ("question", "uncertain")
+
+
+@pytest.mark.asyncio
+async def test_ungrounded_boundary_does_not_trigger_a_correction_or_constrain_a_finding():
+    def variant(data, result):
+        if data["stage"] == "multi_counterevidence":
+            for row in result["rows"]:
+                row.update(acceptance_boundary="given_precondition", evidence=[])
+
+    chat = VariantChat(variant)
+    report = await review_specification(source(), chat, review_mode="multi_agent_direct")
+    searches = [s for s in chat.stages if s["stage"] == "multi_counterevidence"]
+    decisions = [s for s in chat.stages if s["stage"] == "multi_adjudicate"]
+    assert len(searches) == len(decisions) == 1
+    assert all("acceptance_boundary" not in r for r in decisions[0]["counterevidence_search"]["rows"])
+    assert report.findings

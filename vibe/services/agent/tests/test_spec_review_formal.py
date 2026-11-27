@@ -67,3 +67,36 @@ def test_not_explicitly_inclusive_range_does_not_prove_endpoint_conflict():
     source, reqs = fixture(["Счёт со статусом «Проверен» и суммой от 0 до 50 000 тенге утверждается автоматически.",
                            "Счёт со статусом «Проверен» и суммой ровно 50 000 тенге отклоняется автоматически."])
     assert not verify_rule_conflicts(source, reqs, build_fact_index(source, reqs))
+
+
+def test_explicit_count_guards_share_an_integer_boundary_across_sections():
+    lines = ["Если количество мест не менее 12, заявка одобряется.",
+             "Раздел приёмки.", "Если количество мест не более 12, заявка отклоняется."]
+    source, reqs = fixture(lines)
+    witnesses = verify_rule_conflicts(source, reqs, build_fact_index(source, reqs))
+    assert len(witnesses) == 1
+    assert witnesses[0].requirement_ids == ("R-001", "R-003")
+    assert witnesses[0].inputs == {"count_field": "количество мест", "value": "12", "unit": "count"}
+
+
+@pytest.mark.parametrize("left,right", [
+    ("количество мест больше 4", "количество мест меньше 5"),
+    ("количество мест меньше 1", "количество мест меньше 0"),
+    ("количество мест равно 5", "количество гостей равно 5"),
+    ("поле `eligible` равно true", "поле `eligible` равно false"),
+    ("поле `eligible` равно true", "поле `Eligible` равно true"),
+    ("поле `eligible` равно true", "поле `eligible` равно true и время истекло"),
+])
+def test_distinct_or_incomplete_explicit_guards_have_no_witness(left, right):
+    source, reqs = fixture([f"Если {left}, заявка одобряется.", f"Если {right}, заявка отклоняется."])
+    assert not verify_rule_conflicts(source, reqs, build_fact_index(source, reqs))
+
+
+def test_boolean_guard_with_an_exception_outside_extracted_excerpt_uses_original_unit():
+    base = "Если поле `eligible` равно true, заявка отклоняется"
+    source, reqs = fixture(["Если поле `eligible` равно true, заявка одобряется.", base + "."])
+    witnesses = verify_rule_conflicts(source, reqs, build_fact_index(source, reqs))
+    assert witnesses[0].inputs == {"field:eligible": "true"}
+    source.units[1] = base + ", если приём закрыт."
+    reqs[1].evidence.quote = base
+    assert not verify_rule_conflicts(source, reqs, build_fact_index(source, reqs))

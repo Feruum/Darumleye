@@ -1,0 +1,37 @@
+{
+  "source_sha256": "8e2916b92921db6c65a99f1ca25fe9c0fdf07cc1e931c68579b51b543714b937",
+  "gold_sha256": "365c00cf0ce18fb5b7e7ca65a2b1c658caa550a633dd5d9a9f4a26601f84f5a6",
+  "report_sha256": "964b28969b12a56e3e1794ae3a51b0a932131327e6a1740b6492cd35a621a8a9",
+  "findings": {
+    "D-001": {
+      "status": "gold",
+      "root_id": "D01",
+      "rationale": "R01 only guarantees inventory-number uniqueness within each fund, so the R02 URL derived exclusively from that number cannot be globally unique. The address scheme or identifier constraint must change."
+    },
+    "D-002": {
+      "status": "gold",
+      "root_id": "D02",
+      "rationale": "R03 permits public display only of approved images, while R04 bulk-publishes every format-valid image without checking rights. Requiring a consistent rights decision in bulk publication resolves the contradiction."
+    },
+    "D-003": {
+      "status": "gold",
+      "root_id": "D05",
+      "rationale": "R10 requires conversion from mixed centimetre/millimetre data with no unit metadata or fund-unit mapping. Identifying the source unit for each row enables the correct conversion."
+    },
+    "D-004": {
+      "status": "gold",
+      "root_id": "D06",
+      "rationale": "R12 forbids point updates or live status checks between daily index exports, which cannot reliably satisfy the R13 ten-minute removal deadline. Index update or filtering behavior must change."
+    },
+    "D-005": {
+      "status": "gold",
+      "root_id": "D03",
+      "rationale": "R07 gives subjective natural-colour/no-noticeable-distortion expectations without comparison method or measurable acceptance criteria. Establishing the method and criterion makes the requirement verifiable."
+    },
+    "D-006": {
+      "status": "gold",
+      "root_id": "D04",
+      "rationale": "R08 does not say how to compare a precise date against a century or interval where the represented periods overlap. A common sort key/order rule makes the required chronology determinate."
+    }
+  }
+}

@@ -61,10 +61,11 @@ class AdjudicationSummary(GraphModel):
     unsupported: int = Field(ge=0)
     uncertain: int = Field(ge=0)
     unreviewed: int = Field(ge=0)
+    recommendations: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
     def complete_counts(self):
-        if self.confirmed + self.unsupported + self.uncertain + self.unreviewed != self.candidates:
+        if self.confirmed + self.unsupported + self.uncertain + self.unreviewed + self.recommendations != self.candidates:
             raise ValueError("Invalid adjudication coverage counts")
         return self
 

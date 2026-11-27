@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "corpus": "holdout-c",
+  "severity_rubric": {
+    "high": "Одновременная невыполнимость правил ядра процесса, невозможность необходимого вычисления или интеграции, нарушение явно ограниченного доступа, либо существенная ошибка состояния, результата или публикации.",
+    "medium": "Неопределенное поведение в частном сценарии, неработающий вспомогательный процесс или невозможность объективно проверить существенный нефункциональный критерий.",
+    "low": "Локальное уточнение оформления или удобства, не изменяющее основной результат процесса."
+  },
+  "cases": [
+    {
+      "source": "museum-catalog.md",
+      "gold": "museum-catalog.gold.json",
+      "source_sha256": "8e2916b92921db6c65a99f1ca25fe9c0fdf07cc1e931c68579b51b543714b937",
+      "gold_sha256": "365c00cf0ce18fb5b7e7ca65a2b1c658caa550a633dd5d9a9f4a26601f84f5a6",
+      "source_lines": 20,
+      "requirements": 16,
+      "defects": 6,
+      "negative_controls": 5
+    },
+    {
+      "source": "park-repair.md",
+      "gold": "park-repair.gold.json",
+      "source_sha256": "d2f4a7869cab6dbe4410aa340cf199053698e8808ec22da6daeecf0729651c19",
+      "gold_sha256": "ed3b75e37dcc45e3435bc4187f3d8e384665658ed3448f93124b23f2d5420f92",
+      "source_lines": 20,
+      "requirements": 16,
+      "defects": 6,
+      "negative_controls": 6
+    },
+    {
+      "source": "course-submissions.md",
+      "gold": "course-submissions.gold.json",
+      "source_sha256": "3c18901e984a49f9fb624b9c1e0230f4e5cd2b35ac7a7ef86d263c994d89576d",
+      "gold_sha256": "e3dc16b5a31641c55ede04d0aaa8985f4cc1abd06ebf9da88cd38fb22a919270",
+      "source_lines": 20,
+      "requirements": 16,
+      "defects": 6,
+      "negative_controls": 6
+    }
+  ]
+}

@@ -170,7 +170,7 @@ def render_markdown(report: "ReviewReport") -> str:
         lines.extend(["", "Полный граф с оригинальными связями и моделируемыми сценариями доступен в JSON и интерактивном отчёте.", ""])
         if graph.adjudication is not None:
             a = graph.adjudication
-            lines.extend([f"**Арбитраж:** кандидатов {a.candidates}; подтверждено {a.confirmed}; отклонено {a.unsupported}; неопределённых {a.uncertain}; не перепроверено {a.unreviewed}.", ""])
+            lines.extend([f"**Арбитраж:** кандидатов {a.candidates}; подтверждено {a.confirmed}; рекомендаций {a.recommendations}; отклонено {a.unsupported}; неопределённых {a.uncertain}; не перепроверено {a.unreviewed}.", ""])
             if a.unreviewed or a.uncertain:
                 lines.extend(["Неперепроверенные и неопределённые наблюдения сохранены в отчёте; требуется ручная проверка.", ""])
     lines.extend(
@@ -281,6 +281,16 @@ def render_markdown(report: "ReviewReport") -> str:
                         anchor = graph_nodes[edge.target].evidence
                         if anchor:
                             lines.append(f"  - {evidence_text(anchor, report.source)}")
+            lines.append("")
+    for kind, title in (("recommendation", "Рекомендации по документу"), ("question", "Вопросы на проверку")):
+        notes = [note for note in report.review_notes if note.kind == kind]
+        if notes:
+            lines.extend([f"## {title}", ""])
+            for note in notes:
+                lines.append(f"- **{safe_text(note.text)}** {safe_text(note.rationale)}")
+                lines.append(f"  - Наблюдения: {', '.join(note.observation_ids)}")
+                lines.extend(f"  - Источник: {evidence_text(item, report.source)}" for item in note.evidence)
+                lines.extend(f"  - Контекст решения: {evidence_text(item, report.source)}" for item in note.decision_evidence)
             lines.append("")
     lines.extend(["## Критические дефекты", ""])
     critical = [

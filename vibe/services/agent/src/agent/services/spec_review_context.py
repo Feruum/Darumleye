@@ -40,6 +40,30 @@ def requirement_terms(requirement: "Requirement") -> set[str]:
     return terms(requirement.text + " " + requirement.evidence.quote)
 
 
+_RULE_REFERENCE = re.compile(r"(?<!\w)[a-zа-яё][a-zа-яё_]{0,15}[-–]?\d{1,6}(?!\w)", re.I)
+_EXCEPTION = re.compile(r"\b(?:исключ\w*|кроме|однако|приоритет\w*|вместо|unless|except\w*|overrides?)\b", re.I)
+
+
+def cross_reference_units(specification: Specification, cited: list[int], query: str) -> list[int]:
+    """Retrieve remote cross-references and exceptions while retaining the original coordinates."""
+    source = specification.units
+    local = {n for n in cited if 1 <= n <= len(source)}
+    query += " " + " ".join(source[n - 1] for n in sorted(local))
+    references = {m.casefold() for m in _RULE_REFERENCE.findall(query)}
+    vocabulary = terms(query)
+    candidates = [(i, text, terms(text)) for i, text in enumerate(source, 1)
+                  if text.strip() and i not in local and i not in specification.unreadable_units]
+    frequency = Counter(term for _, _, tokens in candidates for term in tokens & vocabulary)
+    ranked = []
+    for i, text, tokens in candidates:
+        linked = bool(references.intersection(m.casefold() for m in _RULE_REFERENCE.findall(text)))
+        common = tokens & vocabulary
+        weight = sum(1 / frequency[t] for t in common)
+        if linked or (len(common) >= 2 and _EXCEPTION.search(text)):
+            ranked.append((not linked, -weight, i))
+    return [i for _, _, i in sorted(ranked)[:4]]
+
+
 def requirement_batches(
     requirements: list["Requirement"], max_count: int = SET_GROUP_SIZE
 ) -> list[list["Requirement"]]:
@@ -165,19 +189,35 @@ def set_scopes(
         return scopes
 
     token_sets = {item.id: requirement_terms(item) for item in requirements}
+    # Explicit source references can connect remote sections even when the
+    # rule and its exception use different vocabulary. Resolve whole tokens
+    # against the source registry, preserving punctuation such as FR-A. Do
+    # not infer references from assigned R-xxx IDs absent from the source.
+    source_ids = {item.id: item.source_id.casefold() for item in requirements if item.source_id}
+    registered = set(source_ids.values())
+    references = {
+        item.id: registered.intersection(re.findall(
+            r"\w+(?:[-.‐‑–]\w+)*", item.evidence.quote.casefold()
+        )) - {source_ids.get(item.id)}
+        for item in requirements
+    }
     frequency = Counter(
         term for vocabulary in token_sets.values() for term in vocabulary
     )
     for primary in groups:
         primary_ids = {item.id for item in primary}
         vocabulary = set().union(*(token_sets[item.id] for item in primary))
+        mentioned = set().union(*(references[item.id] for item in primary))
+        primary_sources = {source_ids[item.id] for item in primary if item.id in source_ids}
 
         def score(item: "Requirement"):
-            return sum(1 / frequency[term] for term in token_sets[item.id] & vocabulary)
+            linked = source_ids.get(item.id) in mentioned or bool(references[item.id] & primary_sources)
+            lexical = sum(1 / frequency[term] for term in token_sets[item.id] & vocabulary)
+            return (not linked, -lexical, item.evidence.start, item.id)
 
         ranked = sorted(
             (item for item in requirements if item.id not in primary_ids),
-            key=lambda item: (-score(item), item.evidence.start, item.id),
+            key=score,
         )
         candidates = next(iter(requirement_batches(ranked)), [])
         if candidates:

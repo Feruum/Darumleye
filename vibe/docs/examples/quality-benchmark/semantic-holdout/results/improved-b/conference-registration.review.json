@@ -1,0 +1,56 @@
+{
+  "source_sha256": "296663279a9d0413fd1e65d2375137d40b44289e7ab8ee7458f8f2940a146803",
+  "gold_sha256": "ffc7b94689dd992ceba02e89485fa26552786b9725cf67de951449160908b4cc",
+  "report_sha256": "662381423a618675b3af7e4708c4b1ae378e01f469139ea046cf17a26d941c68",
+  "findings": {
+    "D-001": {
+      "status": "gold",
+      "root_id": "D01",
+      "rationale": "R03 has an absolute 400-participant cap and R04 guarantees a speaker ticket even at full capacity. The finding identifies the exact incompatible admission rules."
+    },
+    "D-002": {
+      "status": "gold",
+      "root_id": "D03",
+      "rationale": "R08 requires partial or zero refunds in later periods; R09 mandates a full refund for every website-paid cancellation. This identifies both contradictory outcomes."
+    },
+    "D-003": {
+      "status": "duplicate",
+      "root_id": "D03",
+      "rationale": "Same refund schedule versus full-refund integration decision as D-002; no independent corrective decision."
+    },
+    "D-004": {
+      "status": "duplicate",
+      "root_id": "D03",
+      "rationale": "Same R08/R09 conflict already accepted at D-002; rephrasing and evidence selection do not create a new root."
+    },
+    "D-005": {
+      "status": "gold",
+      "root_id": "D02",
+      "rationale": "R05 expires seat holds while R06 allows later payment confirmation; the finding correctly asks how the ticket and money are handled after release."
+    },
+    "D-006": {
+      "status": "gold",
+      "root_id": "D04",
+      "rationale": "R11 leaves the activity-based ranking and tie resolution unspecified; these are needed for selection among applicants."
+    },
+    "D-007": {
+      "status": "gold",
+      "root_id": "D05",
+      "rationale": "R12 requires legal name and tax ID on an invoice but specifies no input source for them; the report identifies that missing data path."
+    },
+    "D-008": {
+      "status": "gold",
+      "root_id": "D06",
+      "rationale": "R13 does not specify an acceptable service/queue time or measurement conditions; the cited finding identifies the untestable speed requirement."
+    },
+    "D-009": {
+      "status": "valid_extra",
+      "root_id": "EXTRA-CONFERENCE-DEADLINE",
+      "rationale": "R11 expressly configures an application-review deadline but does not define what happens to pending applications when it expires. This deadline outcome is distinct from the selection ranking criterion."
+    },
+    "D-010": {
+      "status": "false_positive",
+      "rationale": "R01 clearly gives compatible dates and start time for one conference schedule. Splitting these into two traceability units is an editorial preference, not a source defect or missing decision."
+    }
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "commit": "38c125d0d44be77ccafa7d6f6ed0ec410a6c7117",
+  "sources": {
+    "conference-registration.md": "296663279a9d0413fd1e65d2375137d40b44289e7ab8ee7458f8f2940a146803",
+    "equipment-loans.md": "9f38e7003fccd639bc141b0f48a6c17bf848544a80d4bc9020beb08833f1de90",
+    "warehouse-replenishment.md": "8c3504b76aab9b866b03579efe1b4c43c5e412514d91add5ded72ce024988c26"
+  },
+  "implementation": {
+    "vibe/services/agent/src/agent/services/spec_decision_review.py": "f1e6066286b975dfbb0b5fd039bab7e8e298937afa61eeebeb43a9de938e5684",
+    "vibe/services/agent/src/agent/services/spec_document.py": "13b8100e125e512f7af458f5569570f666b375f15f0aa6bde7cb5e09e1055f00",
+    "vibe/services/agent/src/agent/services/spec_eval_checkpoint.py": "1327620d4e367f3869d1331b37eec3201d347af4e1961ec4a469214491dff42c",
+    "vibe/services/agent/src/agent/services/spec_evidence_graph.py": "5b3f0e4efdb1c321aa3f68ed710fb86da58aa5ace3f96c95be385fc8d5278883",
+    "vibe/services/agent/src/agent/services/spec_fix.py": "865fafe673494eacab9f407c3b904c650be1391a897e4ee78d0442f202545937",
+    "vibe/services/agent/src/agent/services/spec_multi_agent.py": "4735efdaa5df882971b76ebe56b19138ddab867109b576312821ca22cf8d5f6c",
+    "vibe/services/agent/src/agent/services/spec_ocr.py": "3e82c020a400d1bf4434a7adc6ff2b95015af136ded75b62bd8827decac07f82",
+    "vibe/services/agent/src/agent/services/spec_office.py": "19fd036764a10b44ae4ad440bbb2fdead56f98f9e347b1088ad1e1c6d48cf0c1",
+    "vibe/services/agent/src/agent/services/spec_prompt_contract.py": "aba2f4d29da5fa2f19627b82d4f35ad9d98f36be29cfe6d2c13fe1c696270381",
+    "vibe/services/agent/src/agent/services/spec_reference_context.py": "d9edc9465e5fd7913a28cc415c81431823825d27a7f4e422b82473a8bec8b650",
+    "vibe/services/agent/src/agent/services/spec_reference_decision.py": "deeab44f23ae708c18640ff4b62c6b1f680a107395ba309f93eb23e36440dc1a",
+    "vibe/services/agent/src/agent/services/spec_reference_rag.py": "78d9679af87ede141afc50f3a30775f03c421b1252ce4eff65ca969482083077",
+    "vibe/services/agent/src/agent/services/spec_reference_review.py": "47a6c7ac523f29368cea0da1fa840e68482b9ca35f019252497193f560e3dc50",
+    "vibe/services/agent/src/agent/services/spec_report.py": "75228292875ad8e31aad25e4e274aa35ababf553776ed4067205c60bc343a287",
+    "vibe/services/agent/src/agent/services/spec_review.py": "0ae0f346b92989d95845e1859238276f82ff01e272d385f57247bec6ec6a95cb",
+    "vibe/services/agent/src/agent/services/spec_review_context.py": "4c42f29d38871e3ee7529915f68fba3e334e8cde53e4097005ba56574e283809",
+    "vibe/services/agent/src/agent/services/spec_review_facts.py": "d27f01886a71da1e13e978438423b2d08cb83948f72a40bbc2f607f25c3e13ad",
+    "vibe/services/agent/src/agent/services/spec_review_formal.py": "07928fa1e59f501da2415ce76621371cfe866f3dc7b11c815df1073fdd536def",
+    "vibe/services/agent/src/agent/services/spec_review_jobs.py": "5a68af90d0c239a7ad1830a2a8adea34a0b57146af30b5b17d3c81b2500f2b38",
+    "vibe/services/agent/src/agent/services/spec_review_mode.py": "40165d3ce21404f436e9a8398d39be96a2531c4ebb7fbe5cf9f1a68ff4c34c75",
+    "vibe/services/agent/src/agent/services/spec_stage_retry.py": "944c11d756df436e949cbc1813ae467a569035657fa9d07b97922a9fe15529ac",
+    "vibe/services/agent/src/agent/services/spec_static_checks.py": "e05eb9272aab58e20b6d9e4c7795ddf3cd95284113e823304f19f6a30d6e87f8",
+    "vibe/services/agent/src/agent/spec_review_cli.py": "cfef01da0165e32a6a43c6f0b3d2dd45294012e04451d3eed3368eda36c63666",
+    "vibe/services/agent/src/agent/config/settings.py": "85fe527d926c73e510a2e308169d110add8841561626d1b11e45cd7a416b6dbb"
+  },
+  "settings": {
+    "model": "config",
+    "review_mode": "multi_agent",
+    "fact_profile": "full",
+    "z3": true,
+    "reasoning_effort": "low",
+    "adjudication_reasoning_effort": "auto",
+    "concurrency": 3,
+    "drex": false
+  }
+}

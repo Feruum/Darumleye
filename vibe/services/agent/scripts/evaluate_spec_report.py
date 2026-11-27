@@ -130,6 +130,7 @@ def evaluate(source_path: Path, report_path: Path, *, official: bool = False,
         specification.unreadable_units,
         report.extraction_gaps,
         report.readiness_checklist,
+        pending_observations=any(note.kind == "question" for note in report.review_notes),
     )
     check(
         "Statistics derived from actual records",
@@ -249,6 +250,25 @@ def evaluate(source_path: Path, report_path: Path, *, official: bool = False,
             check("Every primary finding retains observation provenance", set(core_nodes) <= incoming)
             counts = Counter(node.role for node in graph.nodes if node.kind == "observation")
             check("Expert observation counts match graph provenance", counts == Counter({expert.role: expert.observations for expert in graph.experts}))
+
+            if "review_notes" in raw_report:
+                def audit_notes():
+                    origins = set()
+                    for note in report.review_notes:
+                        for node_id in note.observation_ids:
+                            node = nodes.get(node_id)
+                            if node is None or node.kind != "observation" or node.finding_id or node_id in origins:
+                                raise ValueError("Invalid review-note provenance")
+                            origins.add(node_id)
+                        if not set(note.requirement_ids) <= ids or ((note.kind == "recommendation") != (note.status == "recommendation")):
+                            raise ValueError("Invalid review-note scope or disposition")
+                        for e in [*note.evidence, *note.decision_evidence]:
+                            specification.verify_quote(e.start, e.end, e.quote)
+                    if graph.adjudication:
+                        a = graph.adjudication
+                        if len(report.findings) != a.confirmed or len(report.review_notes) != a.recommendations + a.uncertain + a.unreviewed:
+                            raise ValueError("Reported dispositions do not reconcile to adjudication")
+                checked("Disposition counts, provenance and review-note citations", audit_notes)
 
             def citation_key(source_id, anchor):
                 return source_id, anchor.start, anchor.end, normalize_quote(anchor.quote)

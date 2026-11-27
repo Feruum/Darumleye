@@ -1,0 +1,52 @@
+{
+  "source_sha256": "d2f4a7869cab6dbe4410aa340cf199053698e8808ec22da6daeecf0729651c19",
+  "gold_sha256": "ed3b75e37dcc45e3435bc4187f3d8e384665658ed3448f93124b23f2d5420f92",
+  "report_sha256": "b669acf4bbffa2511a9ae6f297e8135d45d7225f43c85307bafc5a272911d340",
+  "findings": {
+    "D-001": {
+      "status": "gold",
+      "root_id": "D01",
+      "rationale": "R02 allows no email while R03 requires email for every request and every status change. The proposed decision resolves the impossible recipient case."
+    },
+    "D-002": {
+      "status": "gold",
+      "root_id": "D03",
+      "rationale": "R08 prohibits closure without positive inspection while R09 mandates closure regardless of inspection. The question identifies exactly the conflicting conditions."
+    },
+    "D-003": {
+      "status": "gold",
+      "root_id": "D05",
+      "rationale": "R12 demands weekly remaining person-hours net of all obligations, but the external feed omits the obligations. Adding their aggregate or source makes the required choice possible."
+    },
+    "D-004": {
+      "status": "gold",
+      "root_id": "D02",
+      "rationale": "A point on the shared boundary qualifies for both districts under R04, but exactly one is required; choosing a tie rule addresses the defect."
+    },
+    "D-005": {
+      "status": "gold",
+      "root_id": "D04",
+      "rationale": "R11 requires ranking parks by attendance, but the given park data lack attendance and a comparison rule. Define the measure and data source for this priority."
+    },
+    "D-006": {
+      "status": "false_positive",
+      "rationale": "R01 already identifies the source of the approved contact method (city administration). Its concrete, potentially changing value is external configuration, not a contradiction or omitted product decision; the finding does not show that displaying it is infeasible."
+    },
+    "D-007": {
+      "status": "gold",
+      "root_id": "D06",
+      "rationale": "R13 identifies neither measurable loading threshold nor conditions defining slow mobile internet. A measurable threshold and test conditions are needed."
+    },
+    "D-008": {
+      "status": "false_positive",
+      "rationale": "R15 explicitly establishes three years of retention for both card and journal and excludes an archive. Mentioning card/photo deletion separately does not establish that the journal must remain or that its retention is unspecified. Explicitly restating the journal deletion would be editorial clarification, not an independent product defect.",
+      "negative_control_ids": [
+        "N05"
+      ]
+    },
+    "D-009": {
+      "status": "false_positive",
+      "rationale": "R07 asks the foreman to supply a short description, not to enforce a precise maximum length. The ability to enter a description is testable; imposing a formal length criterion would be an optional enhancement."
+    }
+  }
+}

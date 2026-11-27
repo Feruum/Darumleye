@@ -45,6 +45,12 @@ _OUTCOMES = {
     "не отправляется": ("delivery", "not_sent"),
 }
 _OUTCOME = re.compile(r"\b(?:" + "|".join(re.escape(word) for word in sorted(_OUTCOMES, key=len, reverse=True)) + r")\b", re.I)
+_GUARDED = re.compile(r"если\s+(?P<guard>[^,;\n]{1,160}),\s*(?:то\s+)?(?P<action>[^,;\n]+?)\.?", re.I)
+_COUNT_OPERATORS = {"равно": "=", "больше": ">", "меньше": "<", "не менее": ">=", "не более": "<="}
+_COUNT_GUARD = re.compile(
+    r"(?P<field>(?:количество|число)\s+[а-яё]+(?:\s+[а-яё]+){0,2})\s+"
+    r"(?P<op>не менее|не более|равно|больше|меньше)\s+(?P<n>[0-9]{1,12})", re.I)
+_BOOLEAN_GUARD = re.compile(r"поле\s+`(?P<field>[A-Za-z_][A-Za-z0-9_.-]{0,63})`\s*(?:равно|=)\s*(?P<value>true|false)", re.I)
 _ENTITY = re.compile(r"[^\W\d_]+(?:[ -][^\W\d_]+){0,3}$")
 _ENTITY_START_STOP = {"если", "когда", "при", "для", "после", "в", "на", "до", "не"}
 _MAX_CLAUSE_FACTS = 12
@@ -140,9 +146,41 @@ def build_clause_index(specification: Specification, requirements: list[Requirem
     return tuple(facts)
 
 
+def _parse_guarded_rule(specification: Specification, requirement: Requirement, text: str) -> FormalRule | None:
+    evidence = requirement.evidence
+    # Extracted excerpts can end just before a qualifying condition. Only
+    # formalize this grammar when the whole original unit is accounted for.
+    if evidence.start != evidence.end or specification.units[evidence.start - 1].strip() != evidence.quote.strip():
+        return None
+    clause = _GUARDED.fullmatch(text)
+    if not clause:
+        return None
+    action = clause["action"]
+    predicate = _OUTCOME.search(action)
+    if not predicate or _normalize(action[predicate.end():]) not in {"", "автоматически"}:
+        return None
+    entity = _entity(action[:predicate.start()])
+    if not entity:
+        return None
+    unit = None
+    bounds = ()
+    if count := _COUNT_GUARD.fullmatch(clause["guard"]):
+        field, condition, unit = "count_field", _normalize(count["field"]), "count"
+        bounds = ((_COUNT_OPERATORS[_normalize(count["op"])], count["n"]),)
+    elif flag := _BOOLEAN_GUARD.fullmatch(clause["guard"]):
+        field, condition = f"field:{flag['field']}", flag["value"].lower()
+    else:
+        return None
+    family, outcome = _OUTCOMES[_normalize(predicate.group())]
+    return FormalRule(requirement.id, _normalize(entity), field, condition, family, outcome, unit, bounds,
+                      {"start": evidence.start, "end": evidence.end, "quote": text})
+
+
 def _parse_rule(specification: Specification, requirement: Requirement, quantities: list[Fact]) -> FormalRule | None:
     """Parse only complete, explicit status [+ scalar] -> outcome rules."""
     text = _body(requirement)
+    if text.casefold().startswith("если "):
+        return _parse_guarded_rule(specification, requirement, text)
     statuses = list(_STATUS.finditer(text))
     outcomes = list(_OUTCOME.finditer(text))
     if len(statuses) != 1 or len(outcomes) != 1:
@@ -203,6 +241,7 @@ def verify_rule_conflicts(specification: Specification, requirements: list[Requi
     attempted = 0
     for left, right in combinations(rules, 2):
         if (left.entity != right.entity or left.condition_field != right.condition_field
+                or left.condition_value != right.condition_value
                 or left.family != right.family or left.outcome == right.outcome
                 or (left.unit and right.unit and left.unit != right.unit)):
             continue
@@ -210,10 +249,14 @@ def verify_rule_conflicts(specification: Specification, requirements: list[Requi
             break
         attempted += 1
         state = z3.String("condition_value")
-        value = z3.Real("quantity")
+        unit = left.unit or right.unit
+        discrete_count = left.condition_field == "count_field"
+        value = z3.Int("quantity") if discrete_count else z3.Real("quantity")
         result = z3.String("outcome")
         solver = z3.Solver()
         solver.set(timeout=100)
+        if discrete_count:
+            solver.add(value >= 0)
         for rule in (left, right):
             solver.add(state == z3.StringVal(rule.condition_value))
             for operator, raw in rule.bounds:
@@ -226,7 +269,6 @@ def verify_rule_conflicts(specification: Specification, requirements: list[Requi
         # Both rules constrain the same literal; Z3's string printer escapes
         # non-ASCII characters, so retain the normalized source value.
         inputs = {left.condition_field: left.condition_value}
-        unit = left.unit or right.unit
         if unit:
             inputs.update(value=str(overlap.eval(value, model_completion=True)), unit=unit)
         # Witness of satisfiable common input plus impossibility of a single

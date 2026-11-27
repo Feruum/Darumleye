@@ -10,7 +10,7 @@ import asyncio
 import json
 import operator
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from itertools import combinations
@@ -30,7 +30,7 @@ from agent.services.spec_evidence_graph import (
 from agent.services.spec_review import (
     COMMON, FINDINGS, SEVERITY_RUBRIC, INDIVIDUAL_CRITERIA, READINESS_CRITERIA, READINESS_PROMPT,
     REVIEW_CONCURRENCY, SET_CRITERIA, SEVERITY_ORDER, Check, Evidence, Finding, IndividualDraft,
-    Passport, ReadinessCheck, Requirement, ReviewPipelineError, ReviewProviderRateLimit, ReviewReport,
+    Passport, ReadinessCheck, Requirement, ReviewPipelineError, ReviewProviderRateLimit, ReviewReport, ReviewNote,
     SetCheck, SetDraft, StructuredReview, _correction_reason,
     anchor_missing_finding, apply_code_set_checks, checked_readiness, clarification_questions,
     compare_references, extract_requirements, invoke_stage, ordered_checks,
@@ -39,7 +39,7 @@ from agent.services.spec_review import (
     verify_evidence,
 )
 from agent.services.spec_review_context import (
-    SetScope, is_large_document, requirement_batches, selected_units, set_scopes,
+    SetScope, cross_reference_units, is_large_document, requirement_batches, selected_units, set_scopes,
 )
 from agent.services.spec_review_facts import (
     Fact, FACT_CONTEXT_INSTRUCTIONS, SCENARIO_WITNESS_INSTRUCTIONS,
@@ -117,7 +117,7 @@ ADJUDICATION_BATCH_SIZE = 5
 ADJUDICATION_SOURCE_CHARACTERS = 24_000
 MAX_FINALIZER_GROUPS = 32
 MAX_MERGE_CANDIDATES = 24
-MAX_REPAIR_PAIR_CHECKS = 12
+MAX_REPAIR_PAIR_CHECKS = 24
 MAX_COMPACT_ORIGINS = 12
 MAX_CONSOLIDATION_PAYLOAD_CHARACTERS = 32_000
 COMPACT_ISSUE_CHARACTERS = 800
@@ -147,6 +147,27 @@ before alleging a missing requirement. A stated negative constraint, default,
 exception, data format, or condition is not absent merely because it appears
 elsewhere or with different wording. If the rule is already stated, describe
 only a genuine remaining ambiguity or contradiction; do not invent its absence.
+Report a concrete defect in the stated scope, not a generic improvement or
+an optional implementation decision. Before alleging a gap, identify the
+required outcome that cannot be decided or independently tested as written.
+Do not treat a deliberately repeated constraint, a specific example of a
+general rule, or independently testable steps of a described workflow as a
+defect solely because it is repeated or grouped. A quality defect needs a
+specific adverse effect on traceability, interpretation or verification.
+An explicit architecture, technology or operating constraint is not a defect
+merely because a different solution is possible. Check implementation
+independence only where the constraint conflicts with stated purpose or policy,
+or where a preferred implementation replaces an actual missing outcome.
+Distinguish normative obligations of the reviewed system from descriptions of
+existing operations, environmental context or another system's behavior. Do
+not create a new performance obligation from descriptive context.
+Do not infer additional supported inputs or operations from silence: an
+explicit precision, domain or interface constraint need not specify behavior
+outside that domain unless another stated obligation makes it reachable.
+For cross-rule review, systematically compare the outcomes of stated rules at
+shared boundaries, simultaneous or repeated actions, and state transitions.
+Check whether explicit exclusivity or cardinality constraints remain true
+under a separately stated action; cite both rules if they are incompatible.
 Each finding must describe ONE independent repair decision. Do not combine
 unrelated failures in a broad finding (even if they concern the same API,
 business process, or source section). If one clarification fully fixes two
@@ -206,16 +227,63 @@ class RecheckDraft(StructuredReview):
     assessments: list[RecheckAssessment] = Field(default_factory=list, max_length=100)
 
 
+class AcceptanceRule(StructuredReview):
+    kind: Literal["selection_rule", "explicit_discretion", "validation_obligation"]
+    operative_phrase: str = Field(min_length=3, max_length=800)
+
+
+class CounterevidenceRow(StructuredReview):
+    id: str
+    evidence: list[Evidence] = Field(max_length=3)
+    acceptance_boundary: Literal["unresolved_choice", "given_precondition"] | None = None
+    boundary_premise: str | None = Field(default=None, min_length=3, max_length=800)
+    governing_rule: AcceptanceRule | None = None
+
+
+class CounterevidenceDraft(StructuredReview):
+    rows: list[CounterevidenceRow] = Field(max_length=ADJUDICATION_BATCH_SIZE)
+
+
+class ConflictResolution(StructuredReview):
+    case: str = Field(min_length=5, max_length=450)
+    first_rule: str = Field(min_length=3, max_length=1200)
+    second_rule: str = Field(min_length=3, max_length=1200)
+    basis: Literal["different_scope", "compatible_outcomes", "misread_premise",
+                   "explicit_alternative", "explicit_exception", "explicit_precedence"]
+    decisive_clause: str = Field(min_length=3, max_length=1200)
+    operative_term: str | None = Field(default=None, min_length=2, max_length=400)
+
+
+class AcceptanceBasis(AcceptanceRule):
+    case: str = Field(min_length=5, max_length=450)
+
+
 class AdjudicationDecision(StructuredReview):
     id: str = Field(min_length=1, max_length=60)
-    status: Literal["confirmed", "unsupported", "uncertain"]
+    status: Literal["confirmed", "unsupported", "uncertain", "recommendation"]
     severity: Literal["critical", "high", "medium", "low"] | None = None
     rationale: str = Field(min_length=1, max_length=1200)
     evidence: list[Evidence] = Field(default_factory=list, max_length=8)
+    conflict_resolution: ConflictResolution | None = None
+    acceptance_basis: AcceptanceBasis | None = None
 
 
 class AdjudicationDraft(StructuredReview):
     decisions: list[AdjudicationDecision] = Field(max_length=ADJUDICATION_BATCH_SIZE)
+
+
+class ConfirmedRootPair(StructuredReview):
+    left: str
+    right: str
+    left_citation: int = Field(ge=0)
+    right_citation: int = Field(ge=0)
+    repair: str = Field(min_length=12, max_length=450)
+    scope: str = Field(min_length=8, max_length=400)
+    why_both_resolve: str = Field(min_length=16, max_length=500)
+
+
+class ConfirmedRootReview(StructuredReview):
+    pairs: list[ConfirmedRootPair] = Field(max_length=48)
 
 
 @dataclass(frozen=True)
@@ -262,6 +330,9 @@ class Group:
     observations: list[Observation]
     adjudication: AdjudicationDecision | None = None
     linked_requirements: list[str] = field(default_factory=list)
+    merged_decisions: tuple[AdjudicationDecision, ...] = ()
+    merge_reasons: tuple[str, ...] = ()
+    representative: Finding | None = None
 
     @property
     def id(self) -> str:
@@ -269,7 +340,7 @@ class Group:
 
     def finding(self) -> Finding:
         ordered = sorted(self.observations, key=lambda item: (SEVERITY_ORDER[item.finding.severity], item.id))
-        result = ordered[0].finding.model_copy(deep=True)
+        result = (self.representative or ordered[0].finding).model_copy(deep=True)
         result.requirement_ids = list(dict.fromkeys([*(req for item in ordered for req in item.finding.requirement_ids),
                                                      *self.linked_requirements]))
         result.criteria = list(dict.fromkeys(c for item in ordered for c in item.finding.criteria))
@@ -277,8 +348,128 @@ class Group:
         result.clarification_question = next((item.finding.clarification_question for item in ordered if item.finding.clarification_question), None)
         if self.adjudication and self.adjudication.status == "confirmed" and self.adjudication.severity:
             result.severity = self.adjudication.severity
-            result.evidence = list({evidence_key(e): e for e in [*result.evidence, *self.adjudication.evidence]}.values())
+            decision_evidence = [e for decision in (self.adjudication, *self.merged_decisions) for e in decision.evidence]
+            result.evidence = list({evidence_key(e): e for e in [*result.evidence, *decision_evidence]}.values())
         return result
+
+
+def _confirmed_root_payload(groups, specification, conflicts=()):
+    """Return (payload, budget_limited); isolated groups need no model review."""
+    if len(groups) < 2:
+        return None, False
+    blocked = defaultdict(set)
+    for conflict in conflicts:
+        blocked[conflict.left_id].add(conflict.right_id)
+        blocked[conflict.right_id].add(conflict.left_id)
+    findings = {group.id: group.finding() for group in groups}
+    # Both sides need a selectable citation. Exact source-unit overlap or
+    # a shared requirement is necessary for an admissible attestation.
+    by_unit, by_requirement = defaultdict(set), defaultdict(set)
+    for gid, finding in findings.items():
+        if not finding.evidence:
+            continue
+        for citation in finding.evidence:
+            for idx in range(citation.start, citation.end + 1):
+                by_unit[idx].add(gid)
+        for rid in finding.requirement_ids:
+            by_requirement[rid].add(gid)
+    eligible = set()
+    for scopes in (by_unit, by_requirement):
+        for peers in scopes.values():
+            if len(peers) > 1:
+                eligible.update(gid for gid in peers if gid not in eligible and
+                                any(other != gid and other not in blocked[gid] for other in peers))
+    if not eligible:
+        return None, False
+    if len(eligible) > MAX_FINALIZER_GROUPS:
+        return None, True
+    rows = []
+    indexes = set()
+    for group in groups:
+        if group.id not in eligible:
+            continue
+        f = findings[group.id]
+        rows.append({"id": group.id, "issue": f.issue, "repair": f.recommendation,
+                     "severity": f.severity, "requirement_ids": f.requirement_ids,
+                     "rationale": group.adjudication.rationale,
+                     "citations": [dict(citation_index=i, **e.model_dump()) for i,e in enumerate(f.evidence)]})
+        for e in f.evidence:
+            indexes.update(range(e.start, e.end + 1))
+    payload = {"confirmed_findings": rows, "prohibited_pairs": [
+        [c.left_id,c.right_id] for c in conflicts if c.left_id in eligible and c.right_id in eligible
+    ]}
+    size = len(json.dumps(payload, ensure_ascii=False))
+    if size > MAX_CONSOLIDATION_PAYLOAD_CHARACTERS:
+        return None, True
+    # Give the reviewer the complete original units for its cited evidence.
+    # Omit a unit only when its source text does not fit. The literal
+    # citations remain available and cannot be shortened by this view.
+    units = []
+    for idx in sorted(indexes):
+        unit = {"index": idx, "text": specification.units[idx - 1]}
+        cost = len(json.dumps(unit, ensure_ascii=False)) + 2
+        if size + cost <= MAX_CONSOLIDATION_PAYLOAD_CHARACTERS:
+            units.append(unit)
+            size += cost
+    return {**payload, "cited_source_units": units, "source_units_omitted": len(units) != len(indexes)}, False
+
+
+def _apply_confirmed_root_review(groups, review, conflicts, *, presented_ids=None, preserve_valid_pairs=False):
+    """Merge cliques of attested pairs; retain all original assessments and citations."""
+    lookup = {g.id: g for g in groups}
+    allowed_ids = lookup.keys() if presented_ids is None else lookup.keys() & presented_ids
+    prohibited = {tuple(sorted((c.left_id, c.right_id))) for c in conflicts}
+    accepted = {}
+    findings = {gid: g.finding() for gid, g in lookup.items()}
+    for row in review.pairs:
+        pair = tuple(sorted((row.left, row.right)))
+        error = None
+        if row.left == row.right or row.left not in allowed_ids or row.right not in allowed_ids or pair in accepted or pair in prohibited:
+            error = "Invalid confirmed root pair"
+        else:
+            left, right = findings[row.left], findings[row.right]
+            if row.left_citation >= len(left.evidence) or row.right_citation >= len(right.evidence):
+                error = "Invalid root-review source citation"
+            else:
+                a, b = left.evidence[row.left_citation], right.evidence[row.right_citation]
+                if not (a.start <= b.end and b.start <= a.end or set(left.requirement_ids).intersection(right.requirement_ids)):
+                    error = "Root-review citations lack a shared source scope"
+        if error:
+            if preserve_valid_pairs:
+                continue
+            raise ValueError(error)
+        accepted[pair] = row
+    clusters = {g.id: {g.id} for g in groups}
+    for left, right in sorted(accepted):
+        a, b = clusters[left], clusters[right]
+        if a is b or not all(tuple(sorted((x,y))) in accepted for x in a for y in b):
+            continue
+        united = a | b
+        for gid in united:
+            clusters[gid] = united
+    result, mapped = [], {}
+    for group in groups:
+        if group.id in mapped:
+            continue
+        members = sorted(clusters[group.id], key=lambda gid: (SEVERITY_ORDER[findings[gid].severity], gid))
+        primary = lookup[members[0]]
+        for gid in members:
+            mapped[gid] = primary.id
+        if len(members) == 1:
+            result.append(primary)
+            continue
+        reasons = []
+        for a, b in combinations(members, 2):
+            row = accepted[tuple(sorted((a,b)))]
+            reasons.append(f"{row.left} / {row.right}: {row.scope}. {row.repair}. {row.why_both_resolve}")
+        result.append(Group(
+            observations=[o for gid in members for o in lookup[gid].observations],
+            adjudication=primary.adjudication,
+            linked_requirements=list(dict.fromkeys(r for gid in members for r in findings[gid].requirement_ids)),
+            merged_decisions=tuple(lookup[gid].adjudication for gid in members[1:]),
+            merge_reasons=tuple(reasons), representative=findings[primary.id],
+        ))
+    return result, mapped
 
 
 @dataclass
@@ -358,6 +549,42 @@ class ReviewState(TypedDict, total=False):
 
 def evidence_key(e):
     return (e.start, e.end, normalize_quote(e.quote))
+
+
+def validate_conflict_resolution(row: AdjudicationDecision) -> None:
+    """Validate literal support before withdrawing an alleged contradiction."""
+    if row.status not in {"unsupported", "recommendation"}:
+        return
+    proof = row.conflict_resolution
+    if not proof:
+        raise ValueError("Withdrawing a conflict requires a source-backed same-case resolution")
+    excerpts = [normalize_quote(e.quote) for e in row.evidence]
+    for fragment in (proof.first_rule, proof.second_rule, proof.decisive_clause):
+        if not any(normalize_quote(fragment) in excerpt for excerpt in excerpts):
+            raise ValueError("Both rules and the decisive clause must occur in verified decision evidence")
+    if proof.basis in {"explicit_alternative", "explicit_exception", "explicit_precedence"}:
+        if not proof.operative_term or normalize_quote(proof.operative_term) not in normalize_quote(proof.decisive_clause):
+            raise ValueError("Name the actual alternative, exception or precedence from the decisive clause")
+
+
+def validate_acceptance_basis(decision: AdjudicationDecision, challenge: CounterevidenceRow) -> None:
+    """An independent reading challenges one specific direction of adjudication."""
+    if challenge.acceptance_boundary == "unresolved_choice" and decision.status in {"unsupported", "recommendation"}:
+        bases = {"selection_rule", "explicit_discretion"}
+    elif challenge.acceptance_boundary == "given_precondition" and decision.status == "confirmed":
+        bases = {"validation_obligation"}
+    else:
+        return
+    proof = decision.acceptance_basis
+    if proof is None or proof.kind not in bases:
+        raise ValueError("Resolve the stated acceptance boundary with the applicable source-backed basis")
+    phrase = normalize_quote(proof.operative_phrase)
+    governing = challenge.governing_rule
+    # A true quotation elsewhere in the document does not establish that it
+    # governs this particular selection or delegates validation to this actor.
+    if (not governing or proof.kind != governing.kind or phrase != normalize_quote(governing.operative_phrase)
+            or not any(phrase in normalize_quote(e.quote) for e in decision.evidence)):
+        raise ValueError("Use the governing rule independently identified for this acceptance case")
 
 
 def is_large_review(specification: Specification, requirements: list[Requirement]) -> bool:
@@ -737,7 +964,7 @@ def _numeric_negation(text):
     # Strip explicit requirement identifiers, but preserve numeric protocol
     # and standards references such as HTTP-400 and ISO-8601.
     text = re.sub(r"\b(?!HTTP-|ISO-|RFC-|TCP-|IP-)[A-ZА-ЯЁ]{1,12}[-–]\d{1,6}\b", "", text)
-    text = re.sub(r"\b(?:r|req|fr|nfr|ф|нф)[-–]\d{1,6}\b", "", text.casefold())
+    text = re.sub(r"\b(?:r|req|fr|nfr|ф|нф)[-–]?\d{1,6}\b", "", text.casefold())
     numbers = [re.sub(r"[ \u00a0\u202f]", "", value).replace(",", ".") for value in
                re.findall(r"(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:[.,]\d+)?", text)]
     words = re.findall(
@@ -929,6 +1156,15 @@ def _compatible_observations(left: Finding, right: Finding) -> bool:
     shared_units = {index for a in left_shared for b in right_shared if related(a, b)
                     for index in range(max(a[0], b[0]), min(a[1], b[1], max(a[0], b[0]) + 63) + 1)}
     strong_overlap = len(shared_units) >= 2 or min(len(left_shared), len(right_shared)) >= 2
+    # Two experts can quote the same permission but different sentences of
+    # its conflicting rule. A shared literal anchor plus a second common
+    # source unit can establish the two-rule scope even when expert registry
+    # IDs differ. Only propose comparison; every original pair still needs
+    # compatible evidence and the reducer must confirm a single repair.
+    if not strong_overlap and left.kind == right.kind == "conflict" and _issue_overlap(left, right):
+        left_units = {start for start, end, _ in l_evidence if start == end}
+        right_units = {start for start, end, _ in r_evidence if start == end}
+        strong_overlap = bool((left_units & right_units) - shared_units)
     fully_related = left_shared == l_evidence and right_shared == r_evidence
     # A narrower restatement can quote only the decisive row of a wider
     # finding and link a different extracted requirement. Retrieve it when
@@ -951,12 +1187,25 @@ def _compatible_observations(left: Finding, right: Finding) -> bool:
     l_num, l_polarity = _numeric_negation(left.issue)
     r_num, r_polarity = _numeric_negation(right.issue)
     if set(l_polarity) != set(r_polarity) and not strong_overlap:
-        return False
+        # A missing boundary/outcome may be described either directly or by
+        # enumerating the surrounding before/after (or allowed/denied) rules.
+        # Both claims must be about absence, the same registered scope and
+        # values, and share strong source context; this only retrieves a
+        # candidate for semantic repair equivalence, never merges it itself.
+        missing_paraphrase = ("absence" in l_polarity and "absence" in r_polarity
+                              and same_scope and strong_scope
+                              and set(l_num) == set(r_num) and _common_objects(left, right))
+        if not missing_paraphrase:
+            return False
     if set(l_num) != set(r_num):
         # A multi-anchor conflict may describe the same boundary using only a
-        # subset of the numbers. Never merge disjoint numeric defects.
+        # subset of the numbers or a different projection of the same two
+        # source rules. Permit semantic comparison only for shared multi-unit
+        # conflicts of identical registered scope; do not auto-merge them.
         a, b = set(l_num), set(r_num)
-        if not (strong_scope and _common_objects(left, right) and (a <= b or b <= a)):
+        same_cross_rule = (left.kind == right.kind == "conflict" and same_scope
+                           and len(shared_units) >= 2)
+        if not (strong_scope and _common_objects(left, right) and (a <= b or b <= a or same_cross_rule)):
             return False
     return True
 
@@ -1166,7 +1415,8 @@ def recheck_source_context(specification: Specification, finding: Finding, requi
     primary = list(dict.fromkeys(priorities))
     adjacent = [index for unit in primary for index in (unit-1, unit+1)]
     related = [item for item in requirements if item.id in finding.requirement_ids]
-    indices = list(dict.fromkeys([*primary, *adjacent,
+    remote = cross_reference_units(specification, primary, finding.issue) if is_large_document(specification) else []
+    indices = list(dict.fromkeys([*primary, *remote, *adjacent,
         *(unit["index"] for unit in selected_units(specification, related, RECHECK_SOURCE_CHARACTERS))]))
     entries, size = [], 0
     partial = False
@@ -1389,6 +1639,10 @@ def _build_graph(report, groups, disputes, group_conflicts, reference, fallback,
         description = finding.recommendation
         if decision:
             description += "\nАрбитраж: " + ("Подтверждено. " if decision.status == "confirmed" else "Неопределённо. ") + decision.rationale
+        for other in group.merged_decisions:
+            description += f"\nПодтверждённая группа {other.id} ({other.severity}): {other.rationale}"
+        for reason in group.merge_reasons:
+            description += f"\nОбщее исправление: {reason}"
         node(id_, "finding", finding.issue, severity=finding.severity, finding_id=id_, description=description)
         for req_id in finding.requirement_ids:
             edge(id_, req_id, "about")
@@ -1421,15 +1675,20 @@ def _build_graph(report, groups, disputes, group_conflicts, reference, fallback,
     # erased. Keep every expert observation, its literal quotes and the
     # adjudicator's counterevidence without creating a fictitious finding ID.
     for group in quarantined:
+        decision = group.adjudication
+        decision_evidence = decision.evidence if decision else []
+        disposition = {"unsupported": "Отклонено арбитром", "uncertain": "Требует уточнения",
+                       "recommendation": "Рекомендация", "unreviewed": "Арбитраж недоступен"}[
+                           decision.status if decision else "unreviewed"]
         for observation in group.observations:
             f = observation.finding
             counts[observation.role] += 1
-            counterevidence = "; ".join(f"{e.start}–{e.end}: «{e.quote}»" for e in group.adjudication.evidence)
+            counterevidence = "; ".join(f"{e.start}–{e.end}: «{e.quote}»" for e in decision_evidence)
             node(observation.id, "observation", f.issue, role=observation.role, severity=f.severity,
-                 description=f"Отклонено арбитром: {group.adjudication.rationale}\nКонтрдоказательства (координаты): {counterevidence}\n{f.recommendation}")
+                 description=f"{disposition}: {decision.rationale if decision else 'Нужна ручная проверка.'}\nКонтекст решения: {counterevidence}\n{f.recommendation}")
             for req_id in f.requirement_ids:
                 edge(observation.id, req_id, "about")
-            for e in [*f.evidence, *group.adjudication.evidence]:
+            for e in [*f.evidence, *decision_evidence]:
                 edge(observation.id, citation(e), "cites")
             for index_, example in enumerate(observation.examples, 1):
                 counter_id = f"C-{observation.id[2:]}-{index_:02d}"
@@ -1441,7 +1700,7 @@ def _build_graph(report, groups, disputes, group_conflicts, reference, fallback,
         id_ = f"O-quarantine-dissent-{index:04d}"
         node(id_, "observation", f"Исходное разногласие по критерию «{dispute.criterion}»", role=dispute.owner,
              requirement_id=dispute.requirement_id,
-             description=f"Исходная оценка: {dispute.original_status}. {dispute.original_comment}. Связанное наблюдение отклонено арбитром.")
+             description=f"Исходная оценка: {dispute.original_status}. {dispute.original_comment}. Связанное наблюдение не подтверждено как дефект.")
         edge(id_, dispute.group_id, "about")
         counts[dispute.owner] += 1
         if dispute.requirement_id:
@@ -1932,7 +2191,10 @@ decision, not just the representative. If an ambiguous contract and a missing
 operation both require defining the same behavior, do not count the latter
 twice just because one calls it a conflict and one a gap.
 For example, naming the larger and smaller bounds in reverse sentence order
-does not create a second inverted-range defect. Preserve independently
+does not create a second inverted-range defect. Different numerical examples
+or periods can demonstrate
+the same incompatibility between two source rules; compare the corrective
+decision, not the example values or the number of quoted fragments. Preserve independently
 actionable problems even when they share a citation. Do not merge a missing
 operation with an independently incorrect method or another separately fixable field
 if correcting one would still leave the other unresolved. Never merge just to reduce the count.
@@ -2252,10 +2514,10 @@ do not trade away distinct defects. All other arrays should be empty.
         observations. The original expert ratings remain immutable.
         """
         groups = state["groups"]
-        candidates = [group for group in groups if (
-            group.finding().severity in {"critical", "high"} or
-            group.finding().kind in {"conflict", "missing", "untestable"}
-        ) and not any(obs.role == "code_checks" for obs in group.observations)]
+        # Even low-severity style claims and deterministic observations can
+        # be semantically wrong in context (such as an intentional repeated
+        # constraint or a circular interval). Review every remaining root.
+        candidates = list(groups)
         candidates.sort(key=lambda group: (SEVERITY_ORDER[group.finding().severity],
                                           group.finding().kind != "conflict", group.id))
         full_source = [{"index": index, "text": unit} for index, unit in enumerate(specification.units, 1)
@@ -2268,24 +2530,179 @@ Assess every supplied finding ID exactly once. Check the original source for
 explicit exceptions, priority rules, different scopes and already stated
 equivalent requirements. A genuine conflict has incompatible mandatory outcomes
 under the same conditions; a hypothetical scenario alone is not proof.
+Check whether the claim describes an actual defect within the required scope,
+not a request for an optional detail or preferred implementation. An ambiguity
+or gap must leave at least one required outcome, acceptance decision or
+traceability obligation genuinely unresolved. Do not confirm a repetition
+solely because a specific acceptance example repeats a general constraint.
+For a duplicate-obligation claim compare both source statements in their
+document roles. Two independently registered operative requirements can impose
+exactly the same actor, condition, action and outcome. If there are separate
+normative IDs but no distinct scope or acceptance purpose, the duplicate
+obligation itself is a traceability defect. A summary, reference, exception
+or worked acceptance example can legitimately restate the operative rule.
+Read both complete declarations. A scenario heading alone supplies no new
+input, expected result or traceability link. If the entire normative wording
+is identical under distinct IDs, point to the concrete difference in scope
+or acceptance purpose before dismissing the duplicate.
+For atomicity and traceability claims, test whether the cited rule already
+specifies each required outcome independently and leaves no actual mapping or
+acceptance decision unresolved. If so, its complete wording is counterevidence
+to an alleged defect, even if editorial splitting is possible. For implementation
+independence, respect explicitly prescribed operating or architecture constraints
+unless the source establishes a concrete incompatible objective or policy. An
+explicit constraint is not an omission; quote it if it refutes the claim.
+Reconstruct both premises of a claimed conflict directly from the original
+source. Extracted registry rows, expert summaries and generated examples can
+misstate a referent, actor, trigger or time interval. Resolve references such
+as "after that period" against the neighboring source clauses. A quoted
+sentence about records with a property does not necessarily authorize creating
+that property at every time. Confirm only if original rules actually prescribe
+different outcomes for the *same reachable case*. Two extracted rows from
+one coherent rule do not independently establish contradictory obligations.
+Construct a witness for the alleged conflict: fix actor, action, time/state and
+the requested result. Apply both source rules to that one case. When one
+requires an operation and another prevents all documented means of doing it
+for that case, the possibility of designing a new channel, role, override or
+exception does not reconcile the current contract. Confirm the conflict if
+those incompatible obligations are grounded. Conversely, a restriction on
+only one route is compatible with the obligation when another *documented*
+route actually provides the same result for that actor, condition and time.
+A genuine delegation of the means to implementation can also make the
+outcomes compatible; cite the operative scope, not merely silence. Treat an
+explicit exception, alternative or precedence as decisive only when the
+text grants it for this same case. Compare rules with different referents
+using their original wording. Do not invent a workaround to reject a claim,
+or confirm a claim merely because an attempted rebuttal failed.
+Determine which actor owns each obligation and review the entire stated
+business process. A mandatory decision assigned to a person must be possible
+and verifiable with the available information just as a system decision must.
+If the source requires a particular selection, ordering or entitlement, check
+whether its deciding criterion and the information needed to apply it are
+defined or explicitly supplied. Delegation to an operator alone supplies
+neither a comparison measure nor a source of facts. Explicit discretion or
+a named authoritative source can settle a business choice; verify the actual
+text. For a mandatory automated calculation, lookup or transfer, trace the
+data path from available inputs to each required output. Knowing who issues
+a value or what it represents does not supply access to that value or a
+mapping between incompatible identifiers. If the described input contract
+provides neither the required value nor a usable link, confirm the missing
+data dependency. No choice of internal implementation can derive an
+unrelated identifier from the supplied fields. Conversely, a prescribed
+owner can supply a configurable value whose concrete contents may vary.
+Descriptions of existing operations or another system alone impose no new
+timing or performance obligation. Quote the framing that establishes scope.
+For a numerical or other deterministic observation, verify interpretation in
+context, including intentional empty domains and cyclic intervals. A true
+arithmetic observation is not always a defect in the specified behavior.
+Apply an entailment test before confirming. Identify the source-imposed obligation,
+its responsible actor, and one reachable input where the written rules give
+incompatible outcomes or fail to decide an observable acceptance condition.
+Separate configuration supplied by an identified owner from a missing product
+decision. Distinguish human guidance from a system-enforced cutoff, an allowed
+implementation choice from a mandated outcome, and a precaution from a demonstrated
+failure. Read coordinated clauses and shared modifiers together across the document.
+For a claimed omission, give a concrete acceptance test for a *stated*
+obligation whose expected result the alleged omission changes. Compare the two
+interpretations against that obligation. If both satisfy every required outcome
+and the source never requires the disputed property to take a unique value,
+the proposed specification would add a new obligation. Route an optional
+clarification to recommendation, citing the complete rule that defines scope.
+In particular, separate validity of a requirement over its stated interval
+from a separate action at or beyond its boundary. A fixed period applies to
+every subject of the clause. A later instruction naming only some subjects
+does not extend its action to others or cancel their common period. Check for
+an explicit postcondition, incompatible exception or dependency that actually
+requires a further decision. Likewise, naming a source of an approved value
+can fully specify how to verify it without fixing its changing literal value.
+For permissions, work out actor, operation and allowed resource from all
+related clauses. An owner or authorized role can be fully specified by its
+relationship to the resource. For data exposure, test the required fields
+and their stated restrictions before assuming extra data enters the output.
+For a statement about the scope of the document, identify a product or
+process obligation whose acceptance actually depends on that statement.
+For alleged missing operations, start from the operative transition. If stated
+conditions already produce the business result, a heading, scope noun or goal
+does not necessarily require an additional manual approval, endpoint or state.
+Confirm a separate missing step only if another operative rule actually
+requires it. Similarly, required role, data, audit or access constraints do
+not by themselves mandate an additional catalogue, representation or control.
+For qualitative wording, identify exactly what the product must enforce.
+Human guidance about the content an operator enters does not itself require
+automatic validation, a numeric cutoff or rejection. If an operator can
+supply the requested input and the outcome is defined, a proposed control is
+optional. Distinguish this from a required observable system quality, mandatory
+ranking or selection whose acceptance depends on an unspecified measure.
+Check whether an external acceptance fixture or convention is explicitly
+designated. Its existence need not be proved by reproducing its contents in
+the specification. Preserve uncertainty when its availability cannot be assessed.
+Consider the passages from the separate counterevidence search. Verify their
+scope yourself. An empty search cannot prove that a rule is absent.
 Use confirmed with a calibrated severity and exact supporting quotations.
-Use unsupported ONLY when exact source counterevidence refutes the claim; quote
-that counterevidence. Do not reject based on silence, incomplete context, or a
-mere opinion. Use uncertain and severity=null when evidence is insufficient.
+Use recommendation for a source-related optional improvement where the current
+obligation can be accepted without the proposed change. Cite its context.
+Use uncertain for a genuine unresolved question about whether the alleged
+defect exists. A confirmed missing business decision stays a defect even if
+the business answer is unknown.
+Use unsupported ONLY when exact source counterevidence refutes the claim or
+establishes that the allegedly unresolved decision is already settled or
+explicitly outside the required scope; quote that counterevidence. Do not
+reject based on silence, incomplete context, or a mere opinion. Use uncertain
+and severity=null when evidence is insufficient.
 Explain in Russian the concrete blocking consequence or why it is not blocking.
 For a confirmed critical conflict cite both incompatible source rules. Do not
 invent, combine, or rewrite findings, requirements or business policies.
-Return {"decisions":[{"id":"supplied ID","status":"confirmed|unsupported|uncertain",
+Return {"decisions":[{"id":"supplied ID","status":"confirmed|unsupported|uncertain|recommendation",
 "severity":"critical|high|medium|low or null","rationale":"Russian explanation",
 "evidence":[{"start":1,"end":1,"quote":"exact excerpt"}]}]}.
-For unsupported or uncertain use JSON null for severity.
+For every status except confirmed use JSON null for severity.
+If check_conflict_resolution is true and status is unsupported or recommendation,
+also return "conflict_resolution" in this decision: {"case":"actor, action and
+time/state tested in Russian","first_rule":"literal excerpt for premise 1",
+"second_rule":"literal excerpt for premise 2","basis":"different_scope|
+compatible_outcomes|misread_premise|explicit_alternative|explicit_exception|
+explicit_precedence","decisive_clause":"literal governing source clause",
+"operative_term":"literal name of alternative, exception or precedence from
+that clause, otherwise null"}. Use one listed basis. Both rules and the
+decisive clause must be literal fragments of this decision's evidence. For
+an explicit resolution quote the precise permission, including its applicable
+conditions. Explain in rationale how that clause reconciles the same case.
+If reconciliation needs a new channel or rule it is a proposed repair.
+For other decisions omit conflict_resolution.
+
+For a choice or a claimed missing input policy, test the boundary of the
+specified operation even when the independent search is unavailable.
+For a selection, try two tied candidates whose identity changes the
+beneficiary or observable result. A developer could implement a stable order
+without a reviewer being able to derive the winner from the published rules.
+For a precondition, exercise the stated transition with the described
+input already supplied. Naming an accepted input or alternative does not by
+itself assign its issuance or validity policy to the reviewed component.
+"""
+        boundary_instructions = """
+When withdrawing an unresolved_choice as unsupported or recommendation,
+quote the applicable selection rule or permission to choose any equivalent
+result. When confirming a gap challenged by given_precondition, quote what
+requires the product to decide the disputed validity or rejection case.
+In these two situations include acceptance_basis with kind (selection_rule
+or explicit_discretion for a choice, validation_obligation for a precondition),
+operative_phrase (copy the governing_rule's literal phrase into your evidence),
+and case (the concrete acceptance scenario in Russian). Check its scope
+yourself. If no applicable rule was independently identified, preserve any
+unresolved disagreement as uncertain.
+If the evidence does not settle the claim, use uncertain. An independently
+supported defect remains confirmed. Omit acceptance_basis in other cases.
 """
         # Reserve a portion of optional time for the existing criterion rechecks.
         now = loop.time()
         cap = now + max(0.0, optional_deadline - now) * .7
 
-        async def batch_review(batch):
-            rows = [{"id": group.id, **group.finding().model_dump()} for group in batch]
+        async def batch_review(batch, search_result: CounterevidenceDraft | None = None, *, search_attempted=False):
+            conflict_ids = {group.id for group in batch if any(
+                observation.finding.kind == "conflict" for observation in group.observations
+            )}
+            rows = [{"id": group.id, **group.finding().model_dump(),
+                     "check_conflict_resolution": group.id in conflict_ids} for group in batch]
             payload = {"findings": rows, "source_complete": complete}
             if readable_fits:
                 payload["source_units"] = full_source
@@ -2293,6 +2710,82 @@ For unsupported or uncertain use JSON null for severity.
                 payload["source_contexts"] = {group.id: recheck_source_context(
                     specification, group.finding(), state["requirements"]) for group in batch}
             by_id = {group.id: group for group in batch}
+            search_instructions = COMMON + """
+Independently search the supplied source for the strongest literal passages
+that could defeat or limit each proposed claim: exceptions, precedence,
+definitions, assigned data owners, obligations of other actors, and rules in
+other sections. For overlapping obligations, search for the literal means,
+permission, exception or precedence that lets the same actor obtain the same
+result in the disputed time/state. A route in another case is not evidence
+of an alternative for this one. If no actual resolution appears, do not
+propose a new design as counterevidence. For an alleged missing operation, find the operative trigger
+and result. For an alleged missing dependency, distinguish the origin of a
+required value from the actual available input, lookup or mapping. Return the
+relevant contract passages even if they only partially resolve the claim. Return exactly one row per supplied id. Cite only passages
+that actually bear on that claim; return empty evidence if none are found.
+For access and data claims, look for assigned actors, ownership restrictions
+and the specified output fields. For a disputed acceptance input, look for a
+designated fixture and its acceptance rule. For repetition, compare the full
+numbered declarations, their parent scopes and any added example inputs.
+For a claimed gap or ambiguity, flag an acceptance_boundary only when
+applicable. Use unresolved_choice when the published criteria can tie, while
+one repeatable observable selection is required. Use given_precondition when
+the source describes an operation with a recognized input and the finding
+assumes extra requirements for deciding whether that input is valid.
+Set boundary_premise to the shortest literal words in evidence that establish
+this reading. If you find a rule resolving the SAME case for the same actor
+and outcome, include governing_rule with kind (selection_rule,
+explicit_discretion or validation_obligation) and operative_phrase (literal
+words establishing that rule in your evidence). A passage can include both
+phrases; distinguish the operative phrase from the premise itself. Omit
+governing_rule when no such rule is found. Omit all three fields for other
+findings.
+Do not assess severity or generate findings.
+Return {"rows":[{"id":"supplied id","evidence":[{"start":1,"end":1,"quote":"exact excerpt"}]}]}.
+Add the optional fields above to the relevant row only.
+"""
+            async def search(prompt):
+                draft = await invoke_stage(llm, "multi_counterevidence", prompt, payload, CounterevidenceDraft)
+                if len(draft.rows) != len(batch) or {row.id for row in draft.rows} != set(by_id):
+                    raise ValueError("Invalid counterevidence search coverage")
+                for row in draft.rows:
+                    for evidence in row.evidence:
+                        verify_evidence(specification, evidence)
+                    # An optional, ungrounded tag cannot govern another
+                    # decision or invalidate useful evidence for its peers.
+                    excerpts = [normalize_quote(e.quote) for e in row.evidence]
+                    premise = normalize_quote(row.boundary_premise or "")
+                    if not row.acceptance_boundary or not premise or not any(premise in e for e in excerpts) or not any(
+                        obs.finding.kind in {"missing", "ambiguous", "untestable"}
+                        for obs in by_id[row.id].observations
+                    ):
+                        row.acceptance_boundary = None
+                        row.boundary_premise = None
+                        row.governing_rule = None
+                    elif row.governing_rule:
+                        phrase = normalize_quote(row.governing_rule.operative_phrase)
+                        if phrase in premise or premise in phrase or not any(phrase in e for e in excerpts):
+                            row.governing_rule = None
+                return draft
+
+            # Give the independent search a fraction of the time left. Preserve
+            # the adjudicator's own source review if this optional search fails.
+            if not search_attempted:
+                search_deadline = loop.time() + max(0, cap - loop.time()) * .4
+                try:
+                    async with asyncio.timeout_at(search_deadline), gate:
+                        search_result = await validated_retry("multi_counterevidence", search_instructions, search,
+                            allow_correction=True, allow_transient_retry=False)
+                except (ValueError, RuntimeError, TimeoutError):
+                    pass
+            # A split retries the invalid adjudication. Reuse the verified
+            # search for these exact IDs from the same document and run.
+            search_rows = {row.id: row for row in search_result.rows if row.id in by_id} if search_result else {}
+            challenges = {gid: row for gid, row in search_rows.items() if row.acceptance_boundary}
+            payload["counterevidence_search"] = (
+                {"rows": [row.model_dump(exclude_none=True) for row in search_rows.values()]}
+                if search_result is not None else {"status": "unavailable"}
+            )
             async def attempt(prompt):
                 draft = await invoke_stage(llm, "multi_adjudicate", prompt, payload, AdjudicationDraft)
                 expected = {group.id for group in batch}
@@ -2304,19 +2797,24 @@ For unsupported or uncertain use JSON null for severity.
                     group = by_id[row.id]
                     for evidence in row.evidence:
                         verify_evidence(specification, evidence)
+                    if row.id in conflict_ids:
+                        validate_conflict_resolution(row)
+                    if row.id in challenges:
+                        validate_acceptance_basis(row, challenges[row.id])
                     if row.status == "confirmed":
                         if not row.severity or not row.evidence:
                             raise ValueError("Confirmed assessment requires severity and evidence")
                         if (row.severity == "critical" and any(obs.finding.kind == "conflict" for obs in group.observations)
                                 and len({normalize_quote(e.quote) for e in row.evidence}) < 2):
                             raise ValueError("Critical conflict requires both source rules")
-                    elif row.severity is not None or (row.status == "unsupported" and not row.evidence):
+                    elif row.severity is not None or (row.status in {"unsupported", "recommendation"} and not row.evidence):
                         raise ValueError("Rejected assessment requires source counterevidence and no severity")
                 return draft
             try:
                 async with asyncio.timeout_at(cap):
                     async with gate:
-                        draft = await validated_retry("multi_adjudicate", instructions, attempt,
+                        prompt = instructions + boundary_instructions if challenges else instructions
+                        draft = await validated_retry("multi_adjudicate", prompt, attempt,
                             allow_correction=True, allow_transient_retry=False)
             except (ValueError, RuntimeError, TimeoutError) as error:
                 logger.warning("spec_adjudication_unavailable", error_type=type(error).__name__)
@@ -2326,7 +2824,8 @@ For unsupported or uncertain use JSON null for severity.
                 # the same deadline, gate, and per-response evidence checks.
                 if isinstance(error, ValueError) and len(batch) > 1 and loop.time() < cap:
                     midpoint = len(batch) // 2
-                    await asyncio.gather(batch_review(batch[:midpoint]), batch_review(batch[midpoint:]))
+                    await asyncio.gather(batch_review(batch[:midpoint], search_result, search_attempted=True),
+                                         batch_review(batch[midpoint:], search_result, search_attempted=True))
                 return
             for row in draft.decisions:
                 by_id[row.id].adjudication = row
@@ -2334,33 +2833,93 @@ For unsupported or uncertain use JSON null for severity.
         if candidates and loop.time() < cap:
             await asyncio.gather(*(batch_review(candidates[index:index + ADJUDICATION_BATCH_SIZE])
                                    for index in range(0, len(candidates), ADJUDICATION_BATCH_SIZE)))
-        active = [group for group in groups if not group.adjudication or group.adjudication.status != "unsupported"]
-        quarantined = [group for group in groups if group.adjudication and group.adjudication.status == "unsupported"]
-        active_ids = {group.id for group in active}
+        active = [group for group in groups if group.adjudication and group.adjudication.status == "confirmed"]
+        quarantined = [group for group in groups if not group.adjudication or group.adjudication.status != "confirmed"]
+        original_active_ids = {g.id for g in active}
+        root_map = {gid: gid for gid in original_active_ids}
+        root_payload, root_limited = _confirmed_root_payload(active, specification, state["group_conflicts"])
+        root_failed = False
+        if root_payload is not None:
+            presented_ids = {row["id"] for row in root_payload["confirmed_findings"]}
+            root_prompt = COMMON + """
+Compare all supplied confirmed source-grounded findings across groups.
+Return {"pairs":[]} when all decisions are independent. For EVERY two descriptions
+of the same defect, identify ONE concrete business decision, its scope and why
+correcting that decision necessarily resolves both claims in both directions.
+Test a repair mentally in both directions. Separate claims when either still
+needs another decision. Distinguish a scenario that demonstrates the rule
+conflict from a separate wrong acceptance criterion that needs its own change.
+A different secondary citation, numerical example, classification or wording
+can illustrate the same root. Shared numbers, requirement IDs, citations,
+topic or similar recommendations alone cannot justify a merge. If scope,
+actors, denominator, stage or outcomes differ materially, preserve both.
+For each equivalent pair return left/right supplied ids, left_citation and
+right_citation (copy each corresponding citation_index, never a source line
+number). Omit pairs listed in prohibited_pairs. Supply repair, scope, and why_both_resolve in Russian.
+Report every pair of a larger equivalence class separately. Only approve
+equivalence established by the given source. Each original finding remains
+confirmed. Do not change findings or severity.
+"""
+            last_root_draft = None
+            async def compare_roots(instructions):
+                nonlocal last_root_draft
+                draft = await invoke_stage(llm, "multi_root_review", instructions, root_payload, ConfirmedRootReview)
+                last_root_draft = draft
+                return _apply_confirmed_root_review(active, draft, state["group_conflicts"], presented_ids=presented_ids)
+            # Preserve time for downstream checks even for large reports.
+            root_deadline = loop.time() + max(0.0, optional_deadline - loop.time()) * .35
+            try:
+                async with asyncio.timeout_at(root_deadline), gate:
+                    active, root_map = await validated_retry("multi_root_review", root_prompt, compare_roots,
+                        allow_correction=True, allow_transient_retry=False)
+            except (ValueError, RuntimeError, TimeoutError):
+                root_failed = True
+                # An invalid handoff still fails validation and is not cached.
+                # Recover independently valid *attested* edges from that draft.
+                # An isolated invalid edge must not erase a valid disjoint clique.
+                if last_root_draft is not None:
+                    active, root_map = _apply_confirmed_root_review(
+                        active, last_root_draft, state["group_conflicts"], presented_ids=presented_ids, preserve_valid_pairs=True)
+        with review_stage("confirmed-root-consolidation") as span:
+            span.count("groups", len(original_active_ids))
+            span.count("observations", len(original_active_ids) - len(active))
         # A removed finding must not leave an orphaned FAIL or an unjustified
         # PASS. Preserve uncertainty until an analyst resolves the difference.
         active_findings = [group.finding() for group in active]
         for group in quarantined:
             f = group.finding()
+            advisory = group.adjudication is not None and group.adjudication.status == "recommendation"
             for req in state["requirements"]:
                 if req.id in f.requirement_ids:
                     for check in req.checks:
+                        if advisory and check.status != "fail":
+                            continue
                         if check.criterion in f.criteria and not any(req.id in af.requirement_ids and check.criterion in af.criteria for af in active_findings):
-                            check.comment = "Наблюдение отклонено арбитром; требуется ручное решение аналитика по этому критерию."
+                            check.comment = "Связанное наблюдение не подтверждено как дефект. Требуется проверка критерия."
                             check.status = "uncertain"
             for check in state["set_checks"]:
+                if advisory and check.status != "fail":
+                    continue
                 if check.criterion in f.criteria and not any(check.criterion in af.criteria for af in active_findings):
-                    check.comment = "Наблюдение отклонено арбитром; требуется ручное решение аналитика по этому критерию."
+                    check.comment = "Связанное наблюдение не подтверждено как дефект. Требуется проверка критерия."
                     check.status = "uncertain"
         active.sort(key=lambda group: (SEVERITY_ORDER[group.finding().severity], group.id))
         counts = Counter(group.adjudication.status if group.adjudication else "unreviewed" for group in candidates)
-        summary = AdjudicationSummary(candidates=len(candidates), confirmed=counts["confirmed"],
-            unsupported=counts["unsupported"], uncertain=counts["uncertain"], unreviewed=counts["unreviewed"])
+        merged_count = len(original_active_ids) - len(active)
+        summary = AdjudicationSummary(candidates=len(candidates) - merged_count, confirmed=len(active),
+            unsupported=counts["unsupported"], uncertain=counts["uncertain"], unreviewed=counts["unreviewed"], recommendations=counts["recommendation"])
+        selection = dict(state["summary_selection"])
+        for key in ("summary_ids", "priority_ids", "question_ids"):
+            selection[key] = list(dict.fromkeys(root_map[gid] for gid in selection.get(key, []) if gid in root_map))
+        conflicts = {tuple(sorted((root_map[c.left_id], root_map[c.right_id]))) for c in state["group_conflicts"]
+                     if c.left_id in root_map and c.right_id in root_map}
         return {"groups": active, "quarantined": quarantined,
-                "adjudication_summary": summary,
-                "quarantined_disputes": [d for d in state["disputes"] if d.group_id not in active_ids],
-                "disputes": [d for d in state["disputes"] if d.group_id in active_ids],
-                "group_conflicts": [c for c in state["group_conflicts"] if c.left_id in active_ids and c.right_id in active_ids]}
+                "adjudication_summary": summary, "summary_selection": selection,
+                "fallback": state["fallback"] or root_failed,
+                "consolidation_limited": state["consolidation_limited"] or root_limited,
+                "quarantined_disputes": [d for d in state["disputes"] if d.group_id not in root_map],
+                "disputes": [replace(d, group_id=root_map[d.group_id]) for d in state["disputes"] if d.group_id in root_map],
+                "group_conflicts": [GroupConflict(a,b) for a,b in sorted(conflicts) if a != b]}
 
     async def recheck(state):
         disputes = state["disputes"]
@@ -2551,12 +3110,23 @@ severity, invent evidence, or delete observations.
                         "Сопоставление с источниками не завершено; независимая проверка недоступна.")
                 span.outcome(reference.decision_review.status)
         with review_stage("verdict"):
+            notes = []
+            for group in state.get("quarantined", []):
+                assessment = group.adjudication
+                if assessment and assessment.status == "unsupported":
+                    continue
+                finding = group.finding()
+                advisory = bool(assessment and assessment.status == "recommendation")
+                text = finding.recommendation if advisory else (finding.clarification_question or
+                    f"Подтверждается ли наблюдение «{finding.issue.rstrip('.')}»?")
+                notes.append(ReviewNote(observation_ids=[obs.id for obs in group.observations],
+                    kind="recommendation" if advisory else "question", status=assessment.status if assessment else "unreviewed",
+                    text=text, rationale=assessment.rationale if assessment else "Арбитраж недоступен. Требуется ручная проверка.",
+                    requirement_ids=finding.requirement_ids, evidence=finding.evidence,
+                    decision_evidence=assessment.evidence if assessment else []))
             statistics, result = summarize(requirements, findings, set_checks,
-                specification.unreadable_pages, specification.unreadable_units, gaps, readiness)
-            if state.get("quarantined") and result.status == "ready":
-                result.status = "needs_revision"
-                result.reason = "Требуется ручное подтверждение отклонённых наблюдений перед началом разработки."
-                result.priorities = ["Проверить отклонённые наблюдения и их доказательства."]
+                specification.unreadable_pages, specification.unreadable_units, gaps, readiness,
+                pending_observations=any(note.kind == "question" for note in notes))
             questions = clarification_questions(findings, readiness)
             report = ReviewReport(
                 filename=specification.filename, source=specification.source, unreadable_pages=specification.unreadable_pages,
@@ -2567,7 +3137,7 @@ severity, invent evidence, or delete observations.
                                   review_mode=review_mode),
                 requirements=requirements, set_checks=set_checks, statistics=statistics, verdict=result,
                 decision_review=decision, reference_review=reference, readiness_checklist=readiness,
-                clarification_questions=questions, extraction_gaps=gaps,
+                clarification_questions=questions, review_notes=notes, extraction_gaps=gaps,
                 report_markdown="",
             )
         with review_stage("evidence-graph") as span:

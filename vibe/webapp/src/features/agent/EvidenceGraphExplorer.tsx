@@ -71,7 +71,7 @@ export default function EvidenceGraphExplorer({ graph, report, onShowEvidence, o
         <Typography as="p" variant="caption">{graph.nodes.length} узлов · {graph.edges.length} связей · {graph.unresolved_count} неразрешённых разногласий</Typography>
         {graph.finalization_status === 'deterministic_fallback' && <Typography as="p" variant="caption">Использована программная агрегация замечаний.</Typography>}
         {graph.finalization_status === 'limited' && <Typography as="p" variant="caption">Объединение замечаний ограничено объёмом контекста; похожие выводы могут отображаться отдельно.</Typography>}
-        {graph.adjudication && <Typography as="p" variant="caption">Арбитраж: подтверждено {graph.adjudication.confirmed}, отклонено {graph.adjudication.unsupported}, требуют проверки {graph.adjudication.uncertain + graph.adjudication.unreviewed} из {graph.adjudication.candidates}.</Typography>}
+        {graph.adjudication && <Typography as="p" variant="caption">Арбитраж: подтверждено {graph.adjudication.confirmed}, рекомендаций {graph.adjudication.recommendations ?? 0}, отклонено {graph.adjudication.unsupported}, требуют проверки {graph.adjudication.uncertain + graph.adjudication.unreviewed} из {graph.adjudication.candidates}.</Typography>}
       </div>
       <div className="sr-graph-agreement" aria-label="Группы экспертных выводов">
         {(Object.entries(findingAgreementLabels) as [FindingAgreement, string][]).map(([value, label]) => <button type="button" key={value} data-agreement={value} aria-pressed={agreement === value} onClick={() => setAgreement(previous => previous === value ? '' : value)}><Typography as="span" variant="caption">{label} · {[...agreements.values()].filter(item => item === value).length}</Typography></button>)}

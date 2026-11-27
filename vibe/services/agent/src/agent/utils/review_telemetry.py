@@ -124,7 +124,7 @@ _STAGES = frozenset(
         "multi_pair_3",
         "multi_finalizer",
         "multi_recheck",
-        "multi_adjudicate",
+        "multi_adjudicate", "multi_counterevidence", "multi_root_review", "confirmed-root-consolidation",
         *(
             f"multi_{role}_{phase}"
             for role in (

@@ -1,0 +1,60 @@
+{
+  "source_sha256": "8c3504b76aab9b866b03579efe1b4c43c5e412514d91add5ded72ce024988c26",
+  "gold_sha256": "4cd09d31b4f3278eecc87e6ea5ecf6374e6a4b349a69f4db0caf5f33cbf57054",
+  "report_sha256": "65771e967297abc5cc347de8fc9028a71ff27213f57fe20a02aab99226eada16",
+  "findings": {
+    "D-001": {
+      "status": "gold",
+      "root_id": "D01",
+      "rationale": "R03 needs the remaining quantity of open supplier lines and R04 provides only original quantity/status, which is insufficient for partial receipts."
+    },
+    "D-002": {
+      "status": "gold",
+      "root_id": "D02",
+      "rationale": "R05 requires exact replenishment quantity while R06 imposes package multiples. The report captures the non-divisible case and missing corrective rule."
+    },
+    "D-003": {
+      "status": "gold",
+      "root_id": "D04",
+      "rationale": "R10 supplies asynchronous export times but R11 requires a coherent daily data snapshot; the report identifies the absent version/coordination rule."
+    },
+    "D-004": {
+      "status": "gold",
+      "root_id": "D05",
+      "rationale": "R12 forbids any automatic order during pause while R13 explicitly requires a critical-stock order even during pause; the finding addresses the exact priority contradiction."
+    },
+    "D-005": {
+      "status": "duplicate",
+      "root_id": "D02",
+      "rationale": "The numerical example illustrates the same exact-quantity versus package-quantity restriction already accepted at D-002; the repair is identical."
+    },
+    "D-006": {
+      "status": "gold",
+      "root_id": "D03",
+      "rationale": "R07 requires the most reliable alternative supplier but no reliability selection metric or tie rule; the finding captures that missing comparison rule."
+    },
+    "D-007": {
+      "status": "gold",
+      "root_id": "D06",
+      "rationale": "R14 imposes an undefined threshold for noticeable slowdown; the finding requests the same measurable acceptance threshold and test conditions."
+    },
+    "D-008": {
+      "status": "valid_extra",
+      "root_id": "EXTRA-WAREHOUSE-RETRY-OUTCOME",
+      "rationale": "R16 expressly permits manual resend of the same numbered order after a send error but does not distinguish errors before receipt from uncertain receipt. Supplier-side duplicate/preexisting acceptance semantics are unspecified. This does not challenge the explicit no-automatic-retry rule in N05."
+    },
+    "D-009": {
+      "status": "valid_extra",
+      "root_id": "EXTRA-WAREHOUSE-NO-SUPPLIER",
+      "rationale": "R07 mandates routing when the primary confirms no inventory but provides no outcome when none of the alternatives has inventory. Unlike D03, this issue concerns an empty candidate set, not ranking candidates."
+    },
+    "D-010": {
+      "status": "false_positive",
+      "rationale": "R11 describes concurrent operational activity as context for the snapshot requirement; it does not impose an event-processing latency or continuity SLA on the replenishment service. The requested metric introduces a separate requirement without source support."
+    },
+    "D-011": {
+      "status": "false_positive",
+      "rationale": "R14 explicitly establishes the common server as an operating/architecture constraint. No evidence makes that constraint optional or inconsistent; asking to remove it is a design preference."
+    }
+  }
+}

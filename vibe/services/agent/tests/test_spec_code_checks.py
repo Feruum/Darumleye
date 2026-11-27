@@ -129,6 +129,87 @@ def test_repeat_checks_are_conservative_about_overlap_references_and_paraphrases
     assert review.review_code_checks(spec, requirements) == []
 
 
+def test_split_atoms_of_a_duplicated_declaration_yield_one_full_source_pair():
+    fields = ["Отчёт содержит дату", "владелец видит итог."]
+    body = ", ".join(fields)
+    units = [f"- DOC-1. {body}", "# Проверка", f"- DOC-8. {body}",
+             f"- DOC-9. Для архива {fields[0]}.", f"- DOC-6. Для витрины {fields[0]}."]
+    spec = Specification("report.md", "md", units)
+    rows = [
+        requirement(i, atom, atom, line, source_id=source_id)
+        for i, (source_id, line, atom) in enumerate([
+            ("DOC-1", 1, fields[0]), ("DOC-1", 1, fields[1]),
+            ("DOC-8", 3, fields[0]), ("DOC-8", 3, fields[1]),
+            ("DOC-9", 4, fields[0]), ("DOC-6", 5, fields[0]),
+        ], 1)
+    ]
+    finding, = review.review_code_checks(spec, rows)
+    assert finding.requirement_ids == [row.id for row in rows[:4]]
+    assert [item.quote for item in finding.evidence] == [units[0], units[2]]
+    assert "DOC-1" in finding.issue and "DOC-8" in finding.issue
+
+
+@pytest.mark.parametrize("layout", ["csv", "one_page", "separate_pages"])
+@pytest.mark.parametrize("different_scope", [False, True])
+def test_complete_declarations_resolve_scoped_atoms_by_row_or_page_line(layout, different_scope):
+    atoms = ["Заявка сохраняется", "ответ содержит номер."]
+    ids = ["DOC-1", "DOC-8"]
+    scopes = ["Архив", "Витрина" if different_scope else "Архив"]
+    bodies = [f"{scope}: {', '.join(atoms)}" for scope in scopes]
+    if layout == "csv":
+        lines = [f"{identifier} | {body}" for identifier, body in zip(ids, bodies)]
+        source = Specification("rules.csv", "csv", lines)
+    else:
+        lines = [f"{identifier}. {body}" for identifier, body in zip(ids, bodies)]
+        pages = ["Заголовок\n" + "\n".join(lines)] if layout == "one_page" else ["Заголовок\n" + line for line in lines]
+        source = Specification("rules.pdf", "pdf", pages)
+    reqs = [
+        requirement(i * 2 + j + 1, atom, atom, 1 if layout == "one_page" else i + 1, source_id=identifier)
+        for i, identifier in enumerate(ids) for j, atom in enumerate(atoms)
+    ]
+    findings = review.review_code_checks(source, reqs)
+    if different_scope:
+        assert findings == []
+    else:
+        finding, = findings
+        assert set(finding.requirement_ids) == {r.id for r in reqs}
+        assert [e.quote for e in finding.evidence] == lines
+        for e in finding.evidence:
+            source.verify_quote(e.start, e.end, e.quote)
+
+
+@pytest.mark.parametrize("units", [
+    ["DOC-1. Заявка сохраняется\nтолько в архиве.", "DOC-2. Заявка сохраняется\nтолько в витрине."],
+    ["DOC-1. Заявка сохраняется.\nПрименяется только в архиве.", "DOC-2. Заявка сохраняется.\nПрименяется только в витрине."],
+    ["DOC-1. Заявка сохраняется только в архиве.\nDOC-1. Заявка сохраняется только в витрине.", "DOC-2. Заявка сохраняется только в архиве."],
+])
+def test_ambiguous_wrapping_or_multiple_matches_do_not_prove_duplicate(units):
+    spec = Specification("p.pdf", "pdf", units)
+    atom = "Заявка сохраняется"
+    reqs = [requirement(1, atom, atom, 1, source_id="DOC-1"), requirement(2, atom, atom, 2, source_id="DOC-2")]
+    assert review.review_code_checks(spec, reqs) == []
+
+
+@pytest.mark.parametrize("rows,quote", [
+    (["DOC-1 | Архив | Записать дату.", "DOC-2 | Витрина | Записать дату."], "Записать дату."),
+    (["DOC-1 | Записать дату.", "DOC-1 | Удалить дату."], "DOC-1"),
+    (["DOC-1 | Записать дату.\nТолько при успехе.", "DOC-2 | Записать дату.\nТолько при отказе."], "Записать дату."),
+])
+def test_only_a_complete_two_cell_declaration_can_ground_a_csv_duplicate(rows, quote):
+    spec = Specification("p.csv", "csv", rows)
+    reqs = [requirement(i, row, quote, i, source_id=row.split(" | ")[0]) for i, row in enumerate(rows, 1)]
+    assert review.review_code_checks(spec, reqs) == []
+
+
+def test_two_distinct_declarations_of_one_identifier_on_one_page():
+    lines = ["DOC-8. Показать дату.", "DOC-8. Скрыть дату."]
+    spec = Specification("p.pdf", "pdf", ["\n".join(lines)])
+    reqs = [requirement(i, line, line, 1, source_id="DOC-8") for i, line in enumerate(lines, 1)]
+    collision, = review.review_code_checks(spec, reqs)
+    assert collision.criteria == ["Связность"]
+    assert [e.quote for e in collision.evidence] == lines
+
+
 def test_code_checks_do_not_treat_id_fragments_as_requirement_text():
     lines = [
         "REQ-1. Уведомить клиента.",

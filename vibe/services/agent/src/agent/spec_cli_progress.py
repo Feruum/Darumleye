@@ -21,6 +21,8 @@ STAGES = {
     "multi_pair_3": "Валидатор рисков и норм",
     "multi_finalizer": "Финализация экспертных наблюдений",
     "multi_recheck": "Адресная перепроверка",
+    "multi_counterevidence": "Поиск контрдоказательств и исключений",
+    "multi_root_review": "Итоговая проверка общих причин",
     "multi_adjudicate": "Арбитраж подтверждения и критичности",
 }
 TASK_RECOVERY_MESSAGES = {

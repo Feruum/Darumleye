@@ -1,0 +1,42 @@
+{
+  "source_sha256": "9f38e7003fccd639bc141b0f48a6c17bf848544a80d4bc9020beb08833f1de90",
+  "gold_sha256": "6091b46c376de25d4f0ab4afcd8b0796526b5b79436a68fbbda899ae91685982",
+  "report_sha256": "6e647bd69e9ab4eaa36cec6b7969c3d1d48a374f25764ca33fe1e4b5d897b63b",
+  "findings": {
+    "D-001": {
+      "status": "gold",
+      "root_id": "D01",
+      "rationale": "R04 guarantees the reserved interval, while R05 explicitly allows a conflicting walk-in loan. The finding identifies the missing priority decision."
+    },
+    "D-002": {
+      "status": "gold",
+      "root_id": "D03",
+      "rationale": "R07 requires inspection state and prohibits reissue for damage, whereas R08 makes every returned unit available. These are incompatible outcomes for the same return."
+    },
+    "D-003": {
+      "status": "gold",
+      "root_id": "D06",
+      "rationale": "R12 requires the initial procurement cost of the particular unit but does not supply a source for it. Although classified as conflict by the report, the identified corrective decision is the labeled missing cost data source."
+    },
+    "D-004": {
+      "status": "gold",
+      "root_id": "D02",
+      "rationale": "R06 leaves both end-of-business-day time and the applicable calendar undefined, so the finding correctly identifies the ambiguous overdue transition."
+    },
+    "D-005": {
+      "status": "gold",
+      "root_id": "D05",
+      "rationale": "R11 needs a mapping from scanned pass UID to internal employee ID but the specified staff directory has no pass data; the finding identifies the missing mapping."
+    },
+    "D-006": {
+      "status": "gold",
+      "root_id": "D04",
+      "rationale": "R10 does not define how far in advance the reminder is to be delivered; the report identifies the same missing measurable timing criterion."
+    },
+    "D-007": {
+      "status": "valid_extra",
+      "root_id": "EXTRA-EQUIPMENT-DAY-COUNT",
+      "rationale": "R05 gives a maximum in calendar days while R06 ties the deadline to the final day. The specification does not define how the issuance date is counted for a partial first day, so the latest permitted return date can differ. This date calculation is distinct from which clock time and work calendar define the end of that date (D02)."
+    }
+  }
+}

@@ -117,6 +117,10 @@ def expert_reply(data, observations=()):
             return {"assessments": [{"id": item["id"], "status": "agrees", "comment": "Проверено."}
                                     for item in data["disagreements"]]}
         return {"status": "agrees", "comment": "Проверено."}
+    if stage == "multi_root_review":
+        return {"pairs": []}
+    if stage == "multi_counterevidence":
+        return {"rows": [{"id": row["id"], "evidence": []} for row in data["findings"]]}
     if stage == "multi_adjudicate":
         return {"decisions": [{"id": row["id"], "status": "confirmed", "severity": row["severity"],
                               "rationale": "Подтверждено исходным текстом.", "evidence": row["evidence"]}

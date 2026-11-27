@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "corpus": "holdout-b",
+  "cases": [
+    {
+      "source": "equipment-loans.md",
+      "gold": "equipment-loans.gold.json",
+      "source_sha256": "9f38e7003fccd639bc141b0f48a6c17bf848544a80d4bc9020beb08833f1de90",
+      "gold_sha256": "6091b46c376de25d4f0ab4afcd8b0796526b5b79436a68fbbda899ae91685982",
+      "source_lines": 17,
+      "requirements": 15,
+      "defects": 6,
+      "negative_controls": 4
+    },
+    {
+      "source": "conference-registration.md",
+      "gold": "conference-registration.gold.json",
+      "source_sha256": "296663279a9d0413fd1e65d2375137d40b44289e7ab8ee7458f8f2940a146803",
+      "gold_sha256": "ffc7b94689dd992ceba02e89485fa26552786b9725cf67de951449160908b4cc",
+      "source_lines": 18,
+      "requirements": 16,
+      "defects": 6,
+      "negative_controls": 5
+    },
+    {
+      "source": "warehouse-replenishment.md",
+      "gold": "warehouse-replenishment.gold.json",
+      "source_sha256": "8c3504b76aab9b866b03579efe1b4c43c5e412514d91add5ded72ce024988c26",
+      "gold_sha256": "4cd09d31b4f3278eecc87e6ea5ecf6374e6a4b349a69f4db0caf5f33cbf57054",
+      "source_lines": 18,
+      "requirements": 16,
+      "defects": 6,
+      "negative_controls": 5
+    }
+  ]
+}

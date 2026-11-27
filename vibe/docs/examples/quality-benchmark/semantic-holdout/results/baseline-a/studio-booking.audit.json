@@ -1,0 +1,185 @@
+{
+  "source": "studio-booking.md",
+  "source_sha256": "86353426db7ca22eb986aa77501ae9e436d96d62bc0d9b86be4c5611c39b1d8c",
+  "model": "openai/gpt-6-luna",
+  "run_id": "8e838824-2bda-488f-b84a-ed900a1e69f5",
+  "checks": [
+    {
+      "criterion": "Exact source identity",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Registration passport",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Run ID is a UUID",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Unique sequential requirement IDs",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Nonempty requirements register",
+      "passed": true,
+      "detail": "29"
+    },
+    {
+      "criterion": "Every extracted requirement and explicit ID traces to the original",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "All nine individual criteria for every requirement",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "All six set criteria and exact set citations",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "All finding IDs and exact evidence",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Every failed individual check has a finding",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Every finding has a concrete source citation",
+      "passed": true,
+      "detail": "9/9"
+    },
+    {
+      "criterion": "Statistics derived from actual records",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Verdict derived from validated records",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Unreadable page register matches input",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Required Russian report sections",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Actionable recommendations",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "All readiness criteria exactly once and in order",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Readiness citations and confirmed status",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Questions link to verified findings or checklist rows",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Explicit extraction candidate audit",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Independent gap candidates cite the original",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Every failed individual criterion has a linked finding",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Every failed set criterion has a linked finding",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Multi-agent graph exists",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "All five independent experts completed",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Graph covers the requirement register",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Graph covers all primary findings",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Every primary finding retains observation provenance",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Expert observation counts match graph provenance",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Graph links each finding to its reported requirements and citations",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "criterion": "Graph source citations are exact",
+      "passed": true,
+      "detail": ""
+    }
+  ],
+  "passed": 31,
+  "total": 31,
+  "metrics": {
+    "requirements": 29,
+    "individual_checks": 261,
+    "set_checks": 6,
+    "findings": 9,
+    "findings_with_citations": 9,
+    "critical": 2,
+    "verdict": "not_ready",
+    "decision_status": "disabled",
+    "decision_findings": 0,
+    "review_mode": "multi_agent",
+    "graph_nodes": 165,
+    "graph_edges": 338,
+    "readiness_checks": 15,
+    "experts_completed": 5,
+    "reference_status": null,
+    "reference_sources": 0,
+    "reference_observations": 0
+  },
+  "limitation": "Structural/evidence evaluation; no organizer-labeled expected findings were published. Semantic coverage must be independently reviewed."
+}

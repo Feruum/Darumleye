@@ -274,3 +274,21 @@ async def test_correction_hint_only_contains_authored_schema_paths_and_type_code
     await validated_retry("multi_scenario_builder_individual","prompt",
         lambda prompt: invoke_stage(chat,"multi_scenario_builder_individual",prompt,{},ExpertIndividualDraft))
     assert chat.calls==2
+
+
+@pytest.mark.parametrize(("risk", "complete", "mixed_conflict", "expected"), [
+    ("low", True, False, "low"), ("high", True, False, "medium"),
+    ("low", False, False, "medium"), ("low", True, True, "medium"),
+])
+async def test_auto_adjudication_spends_less_only_on_routine_complete_cases(risk, complete, mixed_conflict, expected):
+    class Capture:
+        model_name = "gpt-6-luna"
+
+        async def ainvoke(self, messages, **options):
+            assert options["reasoning_effort"] == expected
+            return AIMessage(content='{"value":"ok"}')
+
+    await invoke_stage(Capture(), "multi_adjudicate", "prompt", {
+        "findings": [{"severity": risk, "kind": "other", "check_conflict_resolution": mixed_conflict}],
+        "source_complete": complete,
+    }, Output)
